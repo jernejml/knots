@@ -29,7 +29,10 @@ $(ANALYSIS)/frames.json $(ANALYSIS)/annotations.json &: $(SCRIPTS)/analyze_datas
 $(ANALYSIS)/board_features.json: $(ANALYSIS)/frames.json $(ANALYSIS)/annotations.json $(SCRIPTS)/board_features.py
 	$(PY) $(SCRIPTS)/board_features.py
 
-all: $(ANALYSIS)/board_features.json
+$(ANALYSIS)/splits.csv: $(ANALYSIS)/board_features.json $(SCRIPTS)/make_splits.py
+	$(PY) $(SCRIPTS)/make_splits.py
+
+all: $(ANALYSIS)/splits.csv
 
 stats:
 	$(PY) $(SCRIPTS)/dataset_stats.py
