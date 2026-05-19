@@ -34,7 +34,7 @@ how it works, where you had issues and similar things. Try to have fun doing thi
 to you soon! :)
 
 
-Clarification on "overlap"
+Clarification on "overlap":
 
 "no overlap" means "no gap" — frames tile the board with no
 missing pixels — not "no redundancy." A pixel-level check shows
@@ -42,3 +42,12 @@ consecutive frames overlap by 50%: frame width = 640 px, stride = 320 px.
 Each board pixel is captured in two adjacent frames, and each physical
 knot is typically annotated once per frame that sees it.
 
+Current approach/plan:
+
+Start by analyzing the dataset to understand frame dimensions and label
+format. Pick a stratified train/val/test split by board so small failure
+modes (TBD) don't end up only in train.
+Convert the rectangle labels to per-frame polygons offline with SAM2
+(bbox + center-point prompt)
+
+Provided data (images+labels) reside in 'data' directory
