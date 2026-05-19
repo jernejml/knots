@@ -245,6 +245,43 @@ def annotation_pixel_mask(annots: list[dict], width: int, height: int) -> np.nda
     return mask
 
 
+def contrast_stats(lab_l: np.ndarray, strip_top: int, strip_bot: int,
+                   annot_mask: np.ndarray, annots: list[dict],
+                   width: int, height: int) -> tuple[float | None, list[tuple[float | None, float | None]]]:
+    """LAB-L contrast between each knot and the surrounding (unannotated) wood.
+
+    Returns (wood_l_mean, [(knot_l_mean, knot - wood) for each annotation]).
+
+    Both elements may be None when the wood strip wasn't detected or contains
+    no wood pixels after annotations are masked out. Contrast is signed: a
+    dark knot on light wood reads negative; a light knot on dark wood reads
+    positive. PIL's LAB-L is uint8 in [0, 255], not the standard [0, 100] —
+    fine for *relative* comparisons but don't reuse this scale outside.
+    """
+    n = len(annots)
+    if strip_top < 0 or strip_bot < strip_top:
+        return None, [(None, None)] * n
+    strip_mask = np.zeros_like(lab_l, dtype=bool)
+    strip_mask[strip_top:strip_bot + 1, :] = True
+    wood_mask = strip_mask & ~annot_mask
+    if not wood_mask.any():
+        return None, [(None, None)] * n
+    wood_l_mean = float(lab_l[wood_mask].mean())
+
+    per_annot: list[tuple[float | None, float | None]] = []
+    for a in annots:
+        x1 = max(0, int(np.floor(a["x1"])))
+        y1 = max(0, int(np.floor(a["y1"])))
+        x2 = min(width, int(np.ceil(a["x2"])))
+        y2 = min(height, int(np.ceil(a["y2"])))
+        if x2 > x1 and y2 > y1:
+            knot_l = float(lab_l[y1:y2, x1:x2].mean())
+            per_annot.append((knot_l, knot_l - wood_l_mean))
+        else:
+            per_annot.append((None, None))
+    return wood_l_mean, per_annot
+
+
 def dark_wood_stats(rgb: np.ndarray, lum: np.ndarray, strip_top: int, strip_bot: int,
                     annot_mask: np.ndarray, args: argparse.Namespace) -> dict:
     height, width = lum.shape
@@ -286,11 +323,13 @@ def dark_wood_stats(rgb: np.ndarray, lum: np.ndarray, strip_top: int, strip_bot:
 def build_annotation_rows(board: int, frame: int, annots: list[dict],
                           width: int, height: int,
                           bucket_thresholds: list[float],
-                          edge_tol: float) -> tuple[list[dict], int]:
+                          edge_tol: float,
+                          per_annot_contrast: list[tuple[float | None, float | None]]
+                          ) -> tuple[list[dict], int]:
     rows: list[dict] = []
     edge_touching = 0
     frame_area = float(width * height)
-    for a in annots:
+    for a, (knot_l, contrast) in zip(annots, per_annot_contrast):
         area_px = a["w_px"] * a["h_px"]
         area_frac = area_px / frame_area if frame_area > 0 else 0.0
         aspect = (a["w"] / a["h"]) if a["h"] > 0 else 0.0
@@ -306,6 +345,8 @@ def build_annotation_rows(board: int, frame: int, annots: list[dict],
                 "w_px": float(a["w_px"]), "h_px": float(a["h_px"]),
                 "area_px": float(area_px), "area_frac": float(area_frac),
                 "aspect_ratio": float(aspect), "size_bucket": bucket,
+                "knot_l_mean": knot_l,
+                "knot_wood_contrast": contrast,
                 **edge,
             }
         )
@@ -377,6 +418,7 @@ def main() -> None:
         with Image.open(img_path) as img:
             rgb = np.asarray(img.convert("RGB"))
             lum = np.asarray(img.convert("L"))
+            lab_l = np.asarray(img.convert("LAB"))[:, :, 0]
         height, width = lum.shape
 
         if board not in height_by_board:
@@ -404,11 +446,18 @@ def main() -> None:
         annot_mask = annotation_pixel_mask(annots, width, height)
 
         dark = dark_wood_stats(rgb, lum, strip_top, strip_bot, annot_mask, args)
+        wood_l_mean, per_annot_contrast = contrast_stats(
+            lab_l, strip_top, strip_bot, annot_mask, annots, width, height,
+        )
         clust = cluster_metrics(annots, args.near_T_min_px, args.near_T_rel)
         ann_rows, edge_touching_count = build_annotation_rows(
             board, frame, annots, width, height, bucket_thresholds, args.edge_touch_tol_px,
+            per_annot_contrast,
         )
         annots_out.extend(ann_rows)
+
+        valid_contrasts = [c for (_k, c) in per_annot_contrast if c is not None]
+        min_abs_contrast = min(valid_contrasts, key=abs) if valid_contrasts else None
 
         frames_out.append(
             {
@@ -421,6 +470,8 @@ def main() -> None:
                 "strip_height_px": strip_height,
                 "annot_count": len(annots),
                 **dark,
+                "wood_l_mean": wood_l_mean,
+                "min_abs_knot_wood_contrast": min_abs_contrast,
                 **clust,
                 "edge_touching_annot_count": edge_touching_count,
             }

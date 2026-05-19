@@ -1,0 +1,42 @@
+# Training image: SAM2 polygon upgrading + YOLOv11-seg fine-tuning.
+#
+# Requires an NVIDIA GPU + the NVIDIA Container Toolkit on the host. The
+# CLAUDE.md task brief asks for CUDA 12.8+; this base image provides 12.8.
+#
+# Build:
+#   docker build -f docker/Dockerfile.train -t knots-train .
+#
+# Run (SAM2 polygon upgrading):
+#   docker run --rm --gpus all \
+#     -v "$PWD/data:/work/data:ro" \
+#     -v "$PWD/labels_seg:/work/labels_seg" \
+#     knots-train python3 scripts/sam_polygons.py
+#
+# Notes:
+# - SAM2 checkpoints are downloaded by ultralytics on first invocation, so
+#   the first run needs internet. Cached after that inside the container's
+#   layer (re-downloads on every `docker run` unless you mount a volume to
+#   persist the cache; ultralytics writes to /root/.config/Ultralytics).
+# - YOLOv11-seg training and inference also run in this image — same deps.
+# - If the exact PyTorch image tag below has been retired upstream, swap
+#   to a current `pytorch/pytorch:*-cuda12.8-*-runtime` variant.
+
+FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime
+
+WORKDIR /work
+
+# libgl1 / libglib2.0-0 are required by opencv-python (headless Linux).
+# make is included so the existing Makefile targets work in this image too.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        make \
+        libgl1 \
+        libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir \
+        ultralytics==8.4.51 \
+        opencv-python==4.10.0.84 \
+        Pillow==11.3.0
+
+COPY scripts/ ./scripts/
+COPY Makefile ./
