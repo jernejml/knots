@@ -2,8 +2,9 @@
 """Per-board feature summary aggregated from analyze_dataset.py outputs.
 
 Reads analysis/frames.json + analysis/annotations.json (so analyze_dataset.py
-must have been run first) and prints one row per board with the features most
-relevant for stratification:
+must have been run first), writes a full per-board dump to
+analysis/board_features.{csv,json}, and prints a sorted view to stdout. The
+output columns:
 
     frames       number of labelled frames in this board
     gaps         missing frame indices inside [first, last]
@@ -23,11 +24,20 @@ re-opened and no labels re-parsed.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from collections import defaultdict
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def rel_to_root(path: Path) -> str:
+    """Render path relative to the repo root for stdout; fall back to absolute."""
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
 
 SORT_KEYS = (
     "board", "frames", "gaps", "annots", "annots_per_frame", "frac_large",
@@ -39,13 +49,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--analysis-dir", type=Path, default=REPO_ROOT / "analysis",
-                        help="Directory containing frames.json and annotations.json.")
+                        help="Directory containing frames.json and annotations.json; "
+                             "board_features.{csv,json} are written here as well.")
     parser.add_argument("--sort", choices=SORT_KEYS, default="frames",
-                        help="Property to sort boards by.")
+                        help="Property to sort boards by (stdout only).")
     parser.add_argument("--order", choices=("asc", "desc"), default="asc",
-                        help="Sort order; 'asc' = lowest first.")
+                        help="Sort order for stdout; 'asc' = lowest first.")
     parser.add_argument("--limit", type=int, default=20,
-                        help="Print at most this many boards. 0 = print all.")
+                        help="Print at most this many boards to stdout. 0 = print all. "
+                             "The on-disk CSV/JSON always contains every board.")
     args = parser.parse_args()
 
     frames_path = args.analysis_dir / "frames.json"
@@ -107,12 +119,21 @@ def main() -> None:
             "height_mixed": height_mixed,
         })
 
+    # Write full unsorted-by-config dump (sorted by board id for determinism).
+    rows_all = sorted(rows, key=lambda r: r["board"])
+    csv_path = args.analysis_dir / "board_features.csv"
+    json_path = args.analysis_dir / "board_features.json"
+    write_csv(csv_path, rows_all)
+    write_json(json_path, rows_all)
+
+    # Stdout view: re-sort by requested key, then limit.
     rows.sort(key=lambda r: r[args.sort], reverse=(args.order == "desc"))
     if args.limit > 0:
         rows = rows[: args.limit]
 
     limit_str = "all" if args.limit <= 0 else str(args.limit)
     print(f"boards={len(by_board)}  sorted by {args.sort} {args.order} (limit={limit_str})")
+    print(f"written: {rel_to_root(csv_path)}, {rel_to_root(json_path)}")
     print()
 
     header = (
@@ -132,6 +153,32 @@ def main() -> None:
             f"{r['avg_dark']:>8.3f}  {r['max_dark']:>8.3f}  "
             f"{r['cluster_frac']*100:>7.1f}%  {r['edge_frac']*100:>6.1f}%  {h:>6}"
         )
+
+
+def write_csv(path: Path, rows: list[dict]) -> None:
+    if not rows:
+        path.write_text("")
+        return
+    cols = list(rows[0].keys())
+    with path.open("w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(cols)
+        for r in rows:
+            out = []
+            for c in cols:
+                v = r.get(c)
+                if isinstance(v, bool):
+                    out.append(int(v))
+                elif isinstance(v, float):
+                    out.append(f"{v:.6g}")
+                else:
+                    out.append(v)
+            writer.writerow(out)
+
+
+def write_json(path: Path, rows: list[dict]) -> None:
+    with path.open("w") as fh:
+        json.dump(rows, fh, indent=2)
 
 
 if __name__ == "__main__":
