@@ -3,3 +3,4 @@ data/labels/
 .claude
 analysis/
 cpp/build/
+models/
