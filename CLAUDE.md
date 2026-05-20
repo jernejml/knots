@@ -48,6 +48,8 @@ Start by analyzing the dataset to understand frame dimensions and label
 format. Pick a stratified train/val/test split by board so small failure
 modes (TBD) don't end up only in train.
 Convert the rectangle labels to per-frame polygons offline with SAM2
-(bbox + center-point prompt)
+(bbox + center-point prompt). Train a YOLOv11-seg student on those                                                                                                                                                                                                                                                                                                                                                   
+polygons. Export the trained model to ONNX as the handoff between Python                                                                                                                                                                                                                                                                                                                                                
+training and C++ inference.
 
 Provided data (images+labels) reside in 'data' directory
