@@ -9,7 +9,7 @@
 # Run (SAM2 polygon upgrading):
 #   docker run --rm --gpus all \
 #     -v "$PWD/data:/work/data:ro" \
-#     -v "$PWD/labels_seg:/work/labels_seg" \
+#     -v "$PWD/out:/work/out" \
 #     knots-train python3 scripts/sam_polygons.py
 #
 # Notes:

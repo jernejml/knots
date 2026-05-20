@@ -451,26 +451,26 @@ def main() -> None:
     ap.add_argument(
         "--seg-labels-dir",
         type=Path,
-        default=REPO_ROOT / "labels_seg",
+        default=REPO_ROOT / "out" / "labels" / "seg",
         help="YOLO-seg labels dir (frame scope only).",
     )
     ap.add_argument(
         "--predictions-dir",
         type=Path,
-        default=REPO_ROOT / "cpp_out",
+        default=REPO_ROOT / "out" / "frames",
         help="Per-frame `knots infer` JSON outputs (frame scope only).",
     )
     ap.add_argument(
         "--boards-pred-dir",
         type=Path,
-        default=REPO_ROOT / "boards_out",
+        default=REPO_ROOT / "out" / "boards" / "pred",
         help="Per-board `knots stitch` JSON outputs (board scope only).",
     )
     ap.add_argument(
         "--output-dir",
         type=Path,
         default=None,
-        help="Composites are written here. Default: viz/ (frame) or viz/boards/ (board).",
+        help="Composites are written here. Default: out/viz/ (frame) or out/viz/boards/ (board).",
     )
 
     src = ap.add_mutually_exclusive_group(required=True)
@@ -531,7 +531,9 @@ def main() -> None:
     bbox_dir = args.bbox_labels_dir or (args.data_dir / "labels")
     if args.output_dir is None:
         args.output_dir = (
-            REPO_ROOT / "viz" if args.scope == "frame" else REPO_ROOT / "viz" / "boards"
+            REPO_ROOT / "out" / "viz"
+            if args.scope == "frame"
+            else REPO_ROOT / "out" / "viz" / "boards"
         )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 

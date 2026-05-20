@@ -13,7 +13,7 @@ For every frame in data/images/ this script computes:
   * Clustering of annotations within a frame via axial-gap union-find
     with a hybrid (absolute + relative) near-touching threshold.
 
-Outputs (written to --output-dir, default analysis/):
+Outputs (written to --output-dir, default out/analysis/):
   frames.csv / frames.json            one row per frame
   annotations.csv / annotations.json  one row per annotation
 
@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--output-dir",
         type=Path,
-        default=REPO_ROOT / "analysis",
+        default=REPO_ROOT / "out" / "analysis",
         help="Output dir for frames/annotations CSV+JSON.",
     )
     p.add_argument(

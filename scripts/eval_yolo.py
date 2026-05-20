@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate a trained YOLOv11-seg model on a held-out split.
 
-Defaults: load the most-recent best.pt under runs/segment/*/weights/ and
+Defaults: load the most-recent best.pt under out/runs/segment/*/weights/ and
 evaluate on the test split. Pass --split val to compare against in-training
 val numbers, or --split train to gauge overfitting.
 
@@ -46,13 +46,13 @@ def main() -> None:
     ap.add_argument(
         "--runs-dir",
         type=Path,
-        default=REPO_ROOT / "runs" / "segment",
+        default=REPO_ROOT / "out" / "runs" / "segment",
         help="Where to look for runs (auto-pick latest best.pt).",
     )
     ap.add_argument(
         "--data",
         type=Path,
-        default=REPO_ROOT / "yolo_dataset" / "dataset.yaml",
+        default=REPO_ROOT / "out" / "yolo_dataset" / "dataset.yaml",
         help="dataset.yaml from train_yolo.py staging.",
     )
     ap.add_argument("--split", default="test", choices=("train", "val", "test"))

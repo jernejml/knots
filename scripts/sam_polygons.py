@@ -185,7 +185,7 @@ def main() -> None:
     ap.add_argument(
         "--output-dir",
         type=Path,
-        default=REPO_ROOT / "labels_seg",
+        default=REPO_ROOT / "out" / "labels" / "seg",
         help="Output dir for YOLO-seg polygon labels.",
     )
     ap.add_argument(

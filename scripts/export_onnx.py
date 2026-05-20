@@ -6,8 +6,8 @@ image and reads final boxes/masks — no postprocessing required. The cost
 is that the confidence/IoU thresholds become fixed at export time; we
 accept that for now.
 
-Defaults: load the most-recent best.pt under runs/segment/*/weights/ and
-write to models/best.onnx as the stable handoff path.
+Defaults: load the most-recent best.pt under out/runs/segment/*/weights/ and
+write to out/models/best.onnx as the stable handoff path.
 """
 
 from __future__ import annotations
@@ -46,13 +46,13 @@ def main() -> None:
     ap.add_argument(
         "--runs-dir",
         type=Path,
-        default=REPO_ROOT / "runs" / "segment",
+        default=REPO_ROOT / "out" / "runs" / "segment",
         help="Where to look for runs (auto-pick latest best.pt).",
     )
     ap.add_argument(
         "--out-dir",
         type=Path,
-        default=REPO_ROOT / "models",
+        default=REPO_ROOT / "out" / "models",
         help="Stable destination for the exported ONNX file.",
     )
     ap.add_argument(

@@ -1,6 +1,5 @@
 data/images/
 data/labels/
 .claude
-analysis/
 cpp/build/
-models/
+out/

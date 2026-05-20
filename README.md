@@ -24,69 +24,66 @@ inside `knots-infer` during `docker build` - no host toolchain needed.
 
 ## Run
 
-The C++ inference path expects `models/best.onnx`, which is produced by
-the offline Python pipeline (analysis → splits → SAM2 polygon upgrade →
-YOLOv11-seg training → ONNX export):
+All generated artefacts (analysis CSVs, SAM labels, training runs, the
+exported ONNX model, per-frame and per-board JSONs, visualisations) live
+under one ignored `out/` tree. The C++ inference path expects
+`out/models/best.onnx`, produced by the offline Python pipeline:
 
 ```bash
 docker run --rm \
   -v "$PWD/data:/work/data:ro" \
-  -v "$PWD/analysis:/work/analysis" \
+  -v "$PWD/out:/work/out" \
   knots-data make all
 
 docker run --rm --gpus all \
   -v "$PWD/data:/work/data:ro" \
-  -v "$PWD/labels_seg:/work/labels_seg" \
+  -v "$PWD/out:/work/out" \
   knots-train python3 scripts/sam_polygons.py
 
 docker run --rm --gpus all \
   -v "$PWD/data:/work/data:ro" \
-  -v "$PWD/labels_seg_l:/work/labels_seg_l" \
-  -v "$PWD/analysis:/work/analysis:ro" \
-  -v "$PWD/yolo_dataset:/work/yolo_dataset" \
-  -v "$PWD/runs:/work/runs" \
+  -v "$PWD/out:/work/out" \
   knots-train python3 scripts/train_yolo.py
 
 docker run --rm --gpus all \
-  -v "$PWD/runs:/work/runs:ro" \
-  -v "$PWD/models:/work/models" \
+  -v "$PWD/data:/work/data:ro" \
+  -v "$PWD/out:/work/out" \
   knots-train python3 scripts/export_onnx.py
 ```
 
-With `models/best.onnx` in place, the test mode is a single invocation —
-inference, GT stitching, and metric aggregation happen in one process:
+With `out/models/best.onnx` in place, the test mode is a single
+invocation — inference, GT stitching, and metric aggregation happen in
+one process:
 
 ```bash
 docker run --rm --gpus all \
   -v "$PWD/data:/work/data:ro" \
-  -v "$PWD/models:/work/models:ro" \
-  -v "$PWD/analysis:/work/analysis" \
+  -v "$PWD/out:/work/out" \
   knots-infer knots eval \
-    --model /work/models/best.onnx \
+    --model /work/out/models/best.onnx \
     --images-dir /work/data/images \
     --labels-dir /work/data/labels \
-    --splits-csv /work/analysis/splits.csv --split test
+    --splits-csv /work/out/analysis/splits.csv --split test
 ```
 
-To produce per-board polygons (without evaluation), use `knots run`:
+To produce per-board polygons without evaluation, use `knots run`:
 
 ```bash
 docker run --rm --gpus all \
   -v "$PWD/data:/work/data:ro" \
-  -v "$PWD/models:/work/models:ro" \
-  -v "$PWD/analysis:/work/analysis:ro" \
-  -v "$PWD/boards_out:/work/boards_out" \
+  -v "$PWD/out:/work/out" \
   knots-infer knots run \
-    --model /work/models/best.onnx \
+    --model /work/out/models/best.onnx \
     --input-dir /work/data/images \
-    --output-dir /work/boards_out \
-    --splits-csv /work/analysis/splits.csv --split test
+    --output-dir /work/out/boards/pred \
+    --splits-csv /work/out/analysis/splits.csv --split test
 ```
 
 For finer-grained debugging, the pipeline can also be run stage-by-stage:
-`knots infer` (per-frame JSONs) → `knots stitch` (per-board JSONs) →
-`knots gt-stitch` (per-board GT JSONs) → `knots eval --pred-dir P --gt-dir G`.
-Use the stage-by-stage form to inspect intermediate outputs or resume at
-frame granularity.
+`knots infer` (per-frame JSONs in `out/frames/`) → `knots stitch`
+(per-board JSONs in `out/boards/pred/`) → `knots gt-stitch` (per-board
+GT in `out/boards/gt/`) → `knots eval --pred-dir P --gt-dir G`. Use the
+stage-by-stage form to inspect intermediate outputs or resume at frame
+granularity.
 
 Each script and `knots` subcommand accepts `--help` for full options.

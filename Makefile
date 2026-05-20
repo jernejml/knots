@@ -3,7 +3,7 @@
 # Targets:
 #   make all     run the chain: analyze_dataset -> board_features
 #   make stats   run dataset_stats.py (diagnostic; no downstream consumers)
-#   make clean   remove analysis/ outputs
+#   make clean   remove out/analysis/ outputs
 #
 # Notes:
 # - Targets are tracked by output-file timestamps. Editing a script
@@ -18,7 +18,7 @@
 
 PY       := python3
 SCRIPTS  := scripts
-ANALYSIS := analysis
+ANALYSIS := out/analysis
 
 # analyze_dataset.py produces both frames.json and annotations.json in
 # one invocation. Grouped-target syntax ('&:') tells make a single run

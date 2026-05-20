@@ -3,13 +3,13 @@
 
 Builds a YOLO-shaped staging dir (symlinks back to data/images/ and the
 chosen SAM polygon-labels dir), writes split list files derived from
-analysis/splits.csv, then calls ultralytics' training loop.
+out/analysis/splits.csv, then calls ultralytics' training loop.
 
 Staging layout:
-    yolo_dataset/
+    out/yolo_dataset/
         dataset.yaml
         images/   (symlinks into data/images/)
-        labels/   (symlinks into labels_seg_l/)
+        labels/   (symlinks into out/labels/seg_l/)
         train.txt val.txt test.txt   (paths relative to repo root)
 
 This script is for training only; evaluate with scripts/eval_yolo.py and
@@ -50,7 +50,7 @@ def ensure_symlink(link: Path, target: Path) -> None:
 
 
 def load_board_splits(splits_csv: Path) -> dict[int, str]:
-    """Parse analysis/splits.csv → {board: split}."""
+    """Parse out/analysis/splits.csv → {board: split}."""
     if not splits_csv.is_file():
         raise SystemExit(f"missing {splits_csv}; run scripts/make_splits.py first.")
     out: dict[int, str] = {}
@@ -144,19 +144,19 @@ def main() -> None:
     ap.add_argument(
         "--seg-labels-dir",
         type=Path,
-        default=REPO_ROOT / "labels_seg_l",
+        default=REPO_ROOT / "out" / "labels" / "seg_l",
         help="SAM polygon labels (YOLO-seg format).",
     )
     ap.add_argument(
         "--splits-csv",
         type=Path,
-        default=REPO_ROOT / "analysis" / "splits.csv",
+        default=REPO_ROOT / "out" / "analysis" / "splits.csv",
         help="Board-level split assignment from make_splits.py.",
     )
     ap.add_argument(
         "--staging-dir",
         type=Path,
-        default=REPO_ROOT / "yolo_dataset",
+        default=REPO_ROOT / "out" / "yolo_dataset",
         help="Where the YOLO scaffold (symlinks + dataset.yaml) lives.",
     )
     ap.add_argument(
@@ -166,12 +166,12 @@ def main() -> None:
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--patience", type=int, default=20)
-    ap.add_argument("--name", default="train", help="Run name (suffix in runs/segment/).")
+    ap.add_argument("--name", default="train", help="Run name (suffix in <project>/).")
     ap.add_argument(
         "--project",
         type=Path,
-        default=None,
-        help="Output project dir; default = ultralytics' runs/segment/.",
+        default=REPO_ROOT / "out" / "runs" / "segment",
+        help="Output project dir; default = out/runs/segment/.",
     )
     ap.add_argument("--device", default="0")
     ap.add_argument("--workers", type=int, default=8)
@@ -208,8 +208,7 @@ def main() -> None:
         workers=args.workers,
         resume=args.resume,
     )
-    if args.project is not None:
-        train_kwargs["project"] = str(args.project)
+    train_kwargs["project"] = str(args.project)
     model.train(**train_kwargs)
     print("\nbest weights:", model.trainer.best)
 

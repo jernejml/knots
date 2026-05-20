@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Stratified 80/10/10 board-level split for the wood-knot dataset.
 
-Reads analysis/board_features.json (so board_features.py must have been
+Reads out/analysis/board_features.json (so board_features.py must have been
 run first) and writes:
-    analysis/splits.csv
-    analysis/splits.json
+    out/analysis/splits.csv
+    out/analysis/splits.json
 plus a stdout summary covering per-stratum allocation, frame/annotation
 counts per split, and a balance audit on every numeric feature that was
 not used as a stratification axis.
@@ -120,7 +120,7 @@ def main() -> None:
     parser.add_argument(
         "--analysis-dir",
         type=Path,
-        default=REPO_ROOT / "analysis",
+        default=REPO_ROOT / "out" / "analysis",
         help="Directory containing board_features.json and where splits.{csv,json} are written.",
     )
     parser.add_argument(

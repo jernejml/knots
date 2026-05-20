@@ -100,7 +100,7 @@ void PrintUsage() {
                  "  Mode B: knots eval --model M --images-dir I --labels-dir L [opts]\n"
                  "\n"
                  "Common:\n"
-                 "  --out PATH            JSON output path (default analysis/eval_boards.json)\n"
+                 "  --out PATH            JSON output path (default out/analysis/eval_boards.json)\n"
                  "  --match-iou F         bbox IoU threshold for matching (default 0.5)\n"
                  "  --boards LIST         comma-separated board IDs\n"
                  "  --boards-file FILE    one board ID per line ('#' comments allowed)\n"
@@ -485,7 +485,7 @@ int CmdEval(int argc, char** argv) {
         return 2;
     }
     if (args.out_json.empty()) {
-        args.out_json = fs::path("analysis") / "eval_boards.json";
+        args.out_json = fs::path("out") / "analysis" / "eval_boards.json";
     }
     const bool mode_b = HasModeBFlags(args);
 

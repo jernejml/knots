@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Per-board feature summary aggregated from analyze_dataset.py outputs.
 
-Reads analysis/frames.json + analysis/annotations.json (so analyze_dataset.py
+Reads out/analysis/frames.json + out/analysis/annotations.json (so analyze_dataset.py
 must have been run first), writes a full per-board dump to
-analysis/board_features.{csv,json}, and prints a sorted view to stdout. The
+out/analysis/board_features.{csv,json}, and prints a sorted view to stdout. The
 output columns:
 
     frames       number of labelled frames in this board
@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument(
         "--analysis-dir",
         type=Path,
-        default=REPO_ROOT / "analysis",
+        default=REPO_ROOT / "out" / "analysis",
         help="Directory containing frames.json and annotations.json; "
         "board_features.{csv,json} are written here as well.",
     )
