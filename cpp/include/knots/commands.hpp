@@ -15,4 +15,10 @@ int CmdInfer(int argc, char** argv);
 // {board}.json per board to --output-dir.
 int CmdStitch(int argc, char** argv);
 
+// Per-board ground-truth stitching: reads per-frame YOLO bboxes from
+// --labels-dir, projects each bbox as a 4-vertex rectangle, and runs the
+// same raster-union pipeline as CmdStitch. Output is bit-identical-format
+// to CmdStitch's so the eval script can compare apples to apples.
+int CmdGtStitch(int argc, char** argv);
+
 }  // namespace knots

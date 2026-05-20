@@ -1,20 +1,11 @@
 // `knots stitch` — per-board polygon stitching from per-frame inference JSONs.
 //
-// For every board with per-frame JSONs in --input-dir:
-//   1. Allocate a board-sized mask (board_width × board_height).
-//   2. For each frame's polygons, translate vertices by (frame_idx * STRIDE_PX,
-//      0) and fillPoly onto the mask.
-//   3. findContours(RETR_EXTERNAL) extracts merged contours — overlapping or
-//      touching polygons from the 50% frame overlap merge automatically.
-//   4. Simplify each contour with approxPolyDP and write one {board}.json with
-//      the resulting per-board polygon list.
-//
-// Algorithm per CLAUDE.md:
-//   "translate each polygon by `frame_idx * STRIDE_PX` (frames are 640 px
-//    wide but advance by only 320 px) and take the raster union via
-//    cv::fillPoly + cv::findContours"
+// Reads {board}_{frame}.json files written by `knots infer`, groups by board,
+// projects each frame's polygons into board coords via stride_px, raster-
+// unions overlapping shapes, and writes one {board}.json per board.
 
 #include "knots/commands.hpp"
+#include "knots/stitching.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -26,7 +17,6 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
-#include <opencv2/imgproc.hpp>
 
 namespace fs = std::filesystem;
 
@@ -61,15 +51,15 @@ bool RequireNext(const std::string& flag, int i, int argc) {
 }
 
 bool ParseArgs(int argc, char** argv, StitchArgs& out) {
-    int i = 1;  // skip subcommand name
+    int i = 1;
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--input-dir" && RequireNext(a, i, argc))     { out.input_dir = argv[++i]; }
-        else if (a == "--output-dir" && RequireNext(a, i, argc)){ out.output_dir = argv[++i]; }
-        else if (a == "--stride-px" && RequireNext(a, i, argc)) { out.stride_px = std::stoi(argv[++i]); }
+        if (a == "--input-dir" && RequireNext(a, i, argc))         { out.input_dir = argv[++i]; }
+        else if (a == "--output-dir" && RequireNext(a, i, argc))   { out.output_dir = argv[++i]; }
+        else if (a == "--stride-px" && RequireNext(a, i, argc))    { out.stride_px = std::stoi(argv[++i]); }
         else if (a == "--simplify-eps" && RequireNext(a, i, argc)) { out.simplify_eps_px = std::stof(argv[++i]); }
-        else if (a == "--force")                                { out.force = true; }
-        else if (a == "--help" || a == "-h")                    { return false; }
+        else if (a == "--force")                                   { out.force = true; }
+        else if (a == "--help" || a == "-h")                       { return false; }
         else {
             std::cerr << "unrecognised arg: " << a << "\n";
             return false;
@@ -82,13 +72,6 @@ bool ParseArgs(int argc, char** argv, StitchArgs& out) {
     }
     return true;
 }
-
-struct FramePolys {
-    int frame_idx;
-    int width;
-    int height;
-    std::vector<std::vector<cv::Point>> polygons;  // in frame-local px coords
-};
 
 const std::regex kJsonStemRe(R"(^(\d+)_(\d+)$)");
 
@@ -108,7 +91,6 @@ int CmdStitch(int argc, char** argv) {
     fs::create_directories(args.output_dir);
 
     try {
-        // Walk input dir; group frame JSONs by board id.
         std::map<int, std::vector<FramePolys>> by_board;
         size_t n_files = 0, n_unparseable = 0;
         for (const auto& entry : fs::directory_iterator(args.input_dir)) {
@@ -152,77 +134,22 @@ int CmdStitch(int argc, char** argv) {
                   << "  force=" << (args.force ? "true" : "false") << "\n";
 
         size_t n_boards_out = 0, n_skipped = 0, total_polys = 0;
-        size_t n_mixed_heights = 0;
-
         for (auto& [board, frames] : by_board) {
             fs::path out_path = args.output_dir / (std::to_string(board) + ".json");
             if (fs::exists(out_path) && !args.force) {
                 ++n_skipped;
                 continue;
             }
-
-            std::sort(frames.begin(), frames.end(),
-                      [](const auto& a, const auto& b) { return a.frame_idx < b.frame_idx; });
-
-            const int board_height = frames.front().height;
-            for (const auto& f : frames) {
-                if (f.height != board_height) {
-                    ++n_mixed_heights;
-                    std::cerr << "  WARN board " << board << " frame " << f.frame_idx
-                              << ": height=" << f.height << " vs board " << board_height
-                              << " — using board height for mask\n";
-                }
-            }
-            const int max_frame_idx = frames.back().frame_idx;
-            const int board_width = max_frame_idx * args.stride_px + frames.back().width;
-
-            cv::Mat mask = cv::Mat::zeros(board_height, board_width, CV_8U);
-            for (const auto& f : frames) {
-                const int dx = f.frame_idx * args.stride_px;
-                for (const auto& poly : f.polygons) {
-                    std::vector<cv::Point> shifted;
-                    shifted.reserve(poly.size());
-                    for (const auto& p : poly) {
-                        shifted.emplace_back(p.x + dx, p.y);
-                    }
-                    std::vector<std::vector<cv::Point>> tmp{std::move(shifted)};
-                    cv::fillPoly(mask, tmp, cv::Scalar(255));
-                }
-            }
-
-            std::vector<std::vector<cv::Point>> contours;
-            cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
-
-            nlohmann::json jb;
-            jb["board"] = board;
-            jb["board_height"] = board_height;
-            jb["board_width"] = board_width;
-            jb["stride_px"] = args.stride_px;
-            jb["knots"] = nlohmann::json::array();
-            for (const auto& contour : contours) {
-                std::vector<cv::Point> simplified;
-                cv::approxPolyDP(contour, simplified, args.simplify_eps_px, /*closed=*/true);
-                if (simplified.size() < 3) continue;
-                nlohmann::json knot;
-                knot["polygon"] = nlohmann::json::array();
-                for (const auto& p : simplified) {
-                    knot["polygon"].push_back({p.x, p.y});
-                }
-                jb["knots"].push_back(knot);
-            }
-            total_polys += jb["knots"].size();
-
-            std::ofstream of(out_path);
-            of << jb.dump(2);
+            total_polys += StitchBoardToJson(board, std::move(frames),
+                                             args.stride_px, args.simplify_eps_px,
+                                             out_path);
             ++n_boards_out;
         }
 
         std::cerr << "\nResult\n"
                   << "  boards processed=" << n_boards_out
                   << "  skipped=" << n_skipped << "\n"
-                  << "  total per-board polygons=" << total_polys
-                  << (n_mixed_heights ? "  (" + std::to_string(n_mixed_heights) + " mixed-height warnings)" : "")
-                  << "\n"
+                  << "  total per-board polygons=" << total_polys << "\n"
                   << "  output dir: " << args.output_dir << "\n";
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";

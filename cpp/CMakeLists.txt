@@ -34,6 +34,8 @@ add_executable(knots
     src/main.cpp
     src/infer.cpp
     src/stitch.cpp
+    src/gt_stitch.cpp
+    src/stitching.cpp
     src/inference.cpp
 )
 
