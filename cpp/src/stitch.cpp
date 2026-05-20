@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 #include "knots/stitching.hpp"
 
@@ -40,25 +41,17 @@ void PrintUsage() {
                  "  --force                overwrite existing outputs\n";
 }
 
-bool RequireNext(const std::string& flag, int i, int argc) {
-    if (i + 1 >= argc) {
-        std::cerr << "missing value for " << flag << "\n";
-        return false;
-    }
-    return true;
-}
-
 bool ParseArgs(int argc, char** argv, StitchArgs& out) {
     int i = 1;
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--input-dir" && RequireNext(a, i, argc)) {
+        if (a == "--input-dir" && cli::RequireNext(a, i, argc)) {
             out.input_dir = argv[++i];
-        } else if (a == "--output-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--output-dir" && cli::RequireNext(a, i, argc)) {
             out.output_dir = argv[++i];
-        } else if (a == "--stride-px" && RequireNext(a, i, argc)) {
+        } else if (a == "--stride-px" && cli::RequireNext(a, i, argc)) {
             out.stride_px = std::stoi(argv[++i]);
-        } else if (a == "--simplify-eps" && RequireNext(a, i, argc)) {
+        } else if (a == "--simplify-eps" && cli::RequireNext(a, i, argc)) {
             out.simplify_eps_px = std::stof(argv[++i]);
         } else if (a == "--force") {
             out.force = true;

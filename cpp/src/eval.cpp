@@ -38,6 +38,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 
 namespace fs = std::filesystem;
@@ -69,29 +70,21 @@ void PrintUsage() {
                  "  --no-write            skip JSON output; print to stdout only\n";
 }
 
-bool RequireNext(const std::string& flag, int i, int argc) {
-    if (i + 1 >= argc) {
-        std::cerr << "missing value for " << flag << "\n";
-        return false;
-    }
-    return true;
-}
-
 bool ParseArgs(int argc, char** argv, EvalArgs& out) {
     int i = 1;
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--pred-dir" && RequireNext(a, i, argc)) {
+        if (a == "--pred-dir" && cli::RequireNext(a, i, argc)) {
             out.pred_dir = argv[++i];
-        } else if (a == "--gt-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--gt-dir" && cli::RequireNext(a, i, argc)) {
             out.gt_dir = argv[++i];
-        } else if (a == "--out" && RequireNext(a, i, argc)) {
+        } else if (a == "--out" && cli::RequireNext(a, i, argc)) {
             out.out_json = argv[++i];
-        } else if (a == "--match-iou" && RequireNext(a, i, argc)) {
+        } else if (a == "--match-iou" && cli::RequireNext(a, i, argc)) {
             out.match_iou = std::stof(argv[++i]);
-        } else if (a == "--boards" && RequireNext(a, i, argc)) {
+        } else if (a == "--boards" && cli::RequireNext(a, i, argc)) {
             out.boards_csv = argv[++i];
-        } else if (a == "--boards-file" && RequireNext(a, i, argc)) {
+        } else if (a == "--boards-file" && cli::RequireNext(a, i, argc)) {
             out.boards_file = argv[++i];
         } else if (a == "--no-write") {
             out.no_write = true;
@@ -108,36 +101,6 @@ bool ParseArgs(int argc, char** argv, EvalArgs& out) {
         return false;
     }
     return true;
-}
-
-std::unordered_set<int> ParseBoardsCsv(const std::string& s) {
-    std::unordered_set<int> out;
-    std::stringstream ss(s);
-    std::string tok;
-    while (std::getline(ss, tok, ',')) {
-        try {
-            out.insert(std::stoi(tok));
-        } catch (...) {
-        }
-    }
-    return out;
-}
-
-std::unordered_set<int> ParseBoardsFile(const fs::path& p) {
-    std::unordered_set<int> out;
-    std::ifstream f(p);
-    if (!f) throw std::runtime_error("cannot open " + p.string());
-    std::string line;
-    while (std::getline(f, line)) {
-        auto a = line.find_first_not_of(" \t");
-        if (a == std::string::npos) continue;
-        if (line[a] == '#') continue;
-        try {
-            out.insert(std::stoi(line.substr(a)));
-        } catch (...) {
-        }
-    }
-    return out;
 }
 
 std::set<int> ListBoardIds(const fs::path& dir) {
@@ -357,8 +320,8 @@ int CmdEval(int argc, char** argv) {
         }
 
         std::unordered_set<int> filter;
-        if (!args.boards_csv.empty()) filter = ParseBoardsCsv(args.boards_csv);
-        if (!args.boards_file.empty()) filter = ParseBoardsFile(args.boards_file);
+        if (!args.boards_csv.empty()) filter = cli::ParseBoardsList(args.boards_csv);
+        if (!args.boards_file.empty()) filter = cli::ParseBoardsFile(args.boards_file);
         std::vector<int> boards;
         for (int b : common) {
             if (!filter.empty() && !filter.count(b)) continue;

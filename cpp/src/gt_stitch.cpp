@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 #include "knots/stitching.hpp"
 
@@ -61,35 +62,27 @@ void PrintUsage() {
                  "  --force                  overwrite existing outputs\n";
 }
 
-bool RequireNext(const std::string& flag, int i, int argc) {
-    if (i + 1 >= argc) {
-        std::cerr << "missing value for " << flag << "\n";
-        return false;
-    }
-    return true;
-}
-
 bool ParseArgs(int argc, char** argv, GtStitchArgs& out) {
     int i = 1;
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--labels-dir" && RequireNext(a, i, argc)) {
+        if (a == "--labels-dir" && cli::RequireNext(a, i, argc)) {
             out.labels_dir = argv[++i];
-        } else if (a == "--images-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--images-dir" && cli::RequireNext(a, i, argc)) {
             out.images_dir = argv[++i];
-        } else if (a == "--output-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--output-dir" && cli::RequireNext(a, i, argc)) {
             out.output_dir = argv[++i];
-        } else if (a == "--stride-px" && RequireNext(a, i, argc)) {
+        } else if (a == "--stride-px" && cli::RequireNext(a, i, argc)) {
             out.stride_px = std::stoi(argv[++i]);
-        } else if (a == "--simplify-eps" && RequireNext(a, i, argc)) {
+        } else if (a == "--simplify-eps" && cli::RequireNext(a, i, argc)) {
             out.simplify_eps_px = std::stof(argv[++i]);
-        } else if (a == "--boards" && RequireNext(a, i, argc)) {
+        } else if (a == "--boards" && cli::RequireNext(a, i, argc)) {
             out.boards_csv = argv[++i];
-        } else if (a == "--boards-file" && RequireNext(a, i, argc)) {
+        } else if (a == "--boards-file" && cli::RequireNext(a, i, argc)) {
             out.boards_file = argv[++i];
-        } else if (a == "--splits-csv" && RequireNext(a, i, argc)) {
+        } else if (a == "--splits-csv" && cli::RequireNext(a, i, argc)) {
             out.splits_csv = argv[++i];
-        } else if (a == "--split" && RequireNext(a, i, argc)) {
+        } else if (a == "--split" && cli::RequireNext(a, i, argc)) {
             out.split = argv[++i];
         } else if (a == "--force") {
             out.force = true;
@@ -110,54 +103,6 @@ bool ParseArgs(int argc, char** argv, GtStitchArgs& out) {
         return false;
     }
     return true;
-}
-
-// Minimal CSV-line splitter for the splits.csv we generate (handles quoted
-// fields). Duplicated from infer.cpp to avoid factoring out a shared util
-// for ~20 lines.
-std::vector<std::string> SplitCsvLine(const std::string& line) {
-    std::vector<std::string> fields;
-    std::string cur;
-    bool in_quotes = false;
-    for (char c : line) {
-        if (c == '"')
-            in_quotes = !in_quotes;
-        else if (c == ',' && !in_quotes) {
-            fields.push_back(cur);
-            cur.clear();
-        } else
-            cur += c;
-    }
-    fields.push_back(cur);
-    return fields;
-}
-
-std::unordered_set<int> LoadBoardsInSplit(const fs::path& csv, const std::string& want) {
-    std::ifstream f(csv);
-    if (!f) throw std::runtime_error("cannot open " + csv.string());
-    std::string line;
-    if (!std::getline(f, line)) throw std::runtime_error("empty splits CSV");
-    auto header = SplitCsvLine(line);
-    int board_col = -1, split_col = -1;
-    for (size_t c = 0; c < header.size(); ++c) {
-        if (header[c] == "board") board_col = static_cast<int>(c);
-        if (header[c] == "split") split_col = static_cast<int>(c);
-    }
-    if (board_col < 0 || split_col < 0) {
-        throw std::runtime_error("splits CSV missing 'board' or 'split' column");
-    }
-    std::unordered_set<int> boards;
-    while (std::getline(f, line)) {
-        if (line.empty()) continue;
-        auto cols = SplitCsvLine(line);
-        if (static_cast<int>(cols.size()) <= std::max(board_col, split_col)) continue;
-        if (cols[split_col] != want) continue;
-        try {
-            boards.insert(std::stoi(cols[board_col]));
-        } catch (...) {
-        }
-    }
-    return boards;
 }
 
 const std::regex kLabelFileRe(R"(^(\d+)_(\d+)\.txt$)");
@@ -187,36 +132,6 @@ std::vector<std::vector<cv::Point>> ParseYoloBboxesAsPolys(const fs::path& label
     return polys;
 }
 
-std::unordered_set<int> ParseBoardsCsv(const std::string& s) {
-    std::unordered_set<int> out;
-    std::stringstream ss(s);
-    std::string tok;
-    while (std::getline(ss, tok, ',')) {
-        try {
-            out.insert(std::stoi(tok));
-        } catch (...) {
-        }
-    }
-    return out;
-}
-
-std::unordered_set<int> ParseBoardsFile(const fs::path& p) {
-    std::unordered_set<int> out;
-    std::ifstream f(p);
-    if (!f) throw std::runtime_error("cannot open " + p.string());
-    std::string line;
-    while (std::getline(f, line)) {
-        auto a = line.find_first_not_of(" \t");
-        if (a == std::string::npos) continue;
-        if (line[a] == '#') continue;
-        try {
-            out.insert(std::stoi(line.substr(a)));
-        } catch (...) {
-        }
-    }
-    return out;
-}
-
 }  // namespace
 
 int CmdGtStitch(int argc, char** argv) {
@@ -238,10 +153,10 @@ int CmdGtStitch(int argc, char** argv) {
     try {
         // Resolve which boards we want.
         std::unordered_set<int> boards_filter;
-        if (!args.boards_csv.empty()) boards_filter = ParseBoardsCsv(args.boards_csv);
-        if (!args.boards_file.empty()) boards_filter = ParseBoardsFile(args.boards_file);
+        if (!args.boards_csv.empty()) boards_filter = cli::ParseBoardsList(args.boards_csv);
+        if (!args.boards_file.empty()) boards_filter = cli::ParseBoardsFile(args.boards_file);
         if (!args.splits_csv.empty())
-            boards_filter = LoadBoardsInSplit(args.splits_csv, args.split);
+            boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
 
         // Walk labels dir; group label files by board.
         std::map<int, std::vector<int>> board_frames;

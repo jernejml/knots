@@ -26,11 +26,11 @@
 #include <opencv2/imgcodecs.hpp>
 #include <regex>
 #include <set>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
+#include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 #include "knots/inference.hpp"
 #include "knots/stitching.hpp"
@@ -69,37 +69,29 @@ void PrintUsage() {
                  "  --force                  overwrite existing per-board outputs\n";
 }
 
-bool RequireNext(const std::string& flag, int i, int argc) {
-    if (i + 1 >= argc) {
-        std::cerr << "missing value for " << flag << "\n";
-        return false;
-    }
-    return true;
-}
-
 bool ParseArgs(int argc, char** argv, Args& out) {
     int i = 1;
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--model" && RequireNext(a, i, argc)) {
+        if (a == "--model" && cli::RequireNext(a, i, argc)) {
             out.model = argv[++i];
-        } else if (a == "--input-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--input-dir" && cli::RequireNext(a, i, argc)) {
             out.input_dir = argv[++i];
-        } else if (a == "--output-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--output-dir" && cli::RequireNext(a, i, argc)) {
             out.output_dir = argv[++i];
-        } else if (a == "--frames" && RequireNext(a, i, argc)) {
+        } else if (a == "--frames" && cli::RequireNext(a, i, argc)) {
             out.frames_csv = argv[++i];
-        } else if (a == "--frames-file" && RequireNext(a, i, argc)) {
+        } else if (a == "--frames-file" && cli::RequireNext(a, i, argc)) {
             out.frames_file = argv[++i];
-        } else if (a == "--splits-csv" && RequireNext(a, i, argc)) {
+        } else if (a == "--splits-csv" && cli::RequireNext(a, i, argc)) {
             out.splits_csv = argv[++i];
-        } else if (a == "--split" && RequireNext(a, i, argc)) {
+        } else if (a == "--split" && cli::RequireNext(a, i, argc)) {
             out.split = argv[++i];
-        } else if (a == "--conf" && RequireNext(a, i, argc)) {
+        } else if (a == "--conf" && cli::RequireNext(a, i, argc)) {
             out.conf = std::stof(argv[++i]);
-        } else if (a == "--stride-px" && RequireNext(a, i, argc)) {
+        } else if (a == "--stride-px" && cli::RequireNext(a, i, argc)) {
             out.stride_px = std::stoi(argv[++i]);
-        } else if (a == "--simplify-eps" && RequireNext(a, i, argc)) {
+        } else if (a == "--simplify-eps" && cli::RequireNext(a, i, argc)) {
             out.simplify_eps_px = std::stof(argv[++i]);
         } else if (a == "--cpu") {
             out.prefer_cuda = false;
@@ -124,101 +116,19 @@ bool ParseArgs(int argc, char** argv, Args& out) {
     return true;
 }
 
-// Minimal CSV-line splitter; matches the one in infer.cpp / gt_stitch.cpp.
-// Three near-identical copies now exist — worth factoring into a cli_util
-// next time these CLI dispatchers get touched.
-std::vector<std::string> SplitCsvLine(const std::string& line) {
-    std::vector<std::string> fields;
-    std::string cur;
-    bool in_quotes = false;
-    for (char c : line) {
-        if (c == '"') {
-            in_quotes = !in_quotes;
-        } else if (c == ',' && !in_quotes) {
-            fields.push_back(cur);
-            cur.clear();
-        } else {
-            cur += c;
-        }
-    }
-    fields.push_back(cur);
-    return fields;
-}
-
-std::unordered_set<int> LoadBoardsInSplit(const fs::path& csv, const std::string& want) {
-    std::ifstream f(csv);
-    if (!f) throw std::runtime_error("cannot open " + csv.string());
-    std::string line;
-    if (!std::getline(f, line)) throw std::runtime_error("empty splits CSV");
-    auto header = SplitCsvLine(line);
-    int board_col = -1, split_col = -1;
-    for (size_t c = 0; c < header.size(); ++c) {
-        if (header[c] == "board") board_col = static_cast<int>(c);
-        if (header[c] == "split") split_col = static_cast<int>(c);
-    }
-    if (board_col < 0 || split_col < 0) {
-        throw std::runtime_error("splits CSV missing 'board' or 'split' column");
-    }
-    std::unordered_set<int> boards;
-    while (std::getline(f, line)) {
-        if (line.empty()) continue;
-        auto cols = SplitCsvLine(line);
-        if (static_cast<int>(cols.size()) <= std::max(board_col, split_col)) continue;
-        if (cols[split_col] != want) continue;
-        try {
-            boards.insert(std::stoi(cols[board_col]));
-        } catch (...) {
-        }
-    }
-    return boards;
-}
-
-const std::regex kFrameStemRe(R"(^(\d+)_(\d+)$)");
 const std::regex kFrameFileRe(R"(^(\d+)_(\d+)\.png$)");
-
-bool ParseStem(const std::string& stem, int& board, int& frame_idx) {
-    std::smatch m;
-    if (!std::regex_match(stem, m, kFrameStemRe)) return false;
-    try {
-        board = std::stoi(m[1]);
-        frame_idx = std::stoi(m[2]);
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
 
 // Group frame stems by board, applying the same filter logic as `knots infer`.
 std::map<int, std::vector<std::pair<int, std::string>>> CollectByBoard(const Args& args) {
     std::vector<std::string> explicit_stems;
-    auto split_comma = [](const std::string& s) {
-        std::vector<std::string> out;
-        std::stringstream ss(s);
-        std::string tok;
-        while (std::getline(ss, tok, ',')) {
-            auto a = tok.find_first_not_of(" \t");
-            auto b = tok.find_last_not_of(" \t");
-            if (a == std::string::npos) continue;
-            out.push_back(tok.substr(a, b - a + 1));
-        }
-        return out;
-    };
-    if (!args.frames_csv.empty()) explicit_stems = split_comma(args.frames_csv);
+    if (!args.frames_csv.empty()) explicit_stems = cli::ParseFramesList(args.frames_csv);
     if (!args.frames_file.empty()) {
-        std::ifstream f(args.frames_file);
-        if (!f) throw std::runtime_error("cannot open " + args.frames_file.string());
-        std::string line;
-        while (std::getline(f, line)) {
-            auto a = line.find_first_not_of(" \t");
-            if (a == std::string::npos) continue;
-            if (line[a] == '#') continue;
-            auto b = line.find_last_not_of(" \t");
-            explicit_stems.push_back(line.substr(a, b - a + 1));
-        }
+        auto from_file = cli::ParseFramesFile(args.frames_file);
+        explicit_stems.insert(explicit_stems.end(), from_file.begin(), from_file.end());
     }
     std::unordered_set<int> boards_filter;
     if (!args.splits_csv.empty()) {
-        boards_filter = LoadBoardsInSplit(args.splits_csv, args.split);
+        boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
         if (boards_filter.empty()) {
             std::cerr << "warning: no boards match split " << args.split << " in "
                       << args.splits_csv << "\n";
@@ -229,7 +139,7 @@ std::map<int, std::vector<std::pair<int, std::string>>> CollectByBoard(const Arg
     if (!explicit_stems.empty()) {
         for (const auto& s : explicit_stems) {
             int b = -1, fi = -1;
-            if (!ParseStem(s, b, fi)) {
+            if (!cli::ParseFrameStem(s, b, fi)) {
                 std::cerr << "warning: unrecognised frame stem: " << s << "\n";
                 continue;
             }
@@ -244,7 +154,7 @@ std::map<int, std::vector<std::pair<int, std::string>>> CollectByBoard(const Arg
             if (!std::regex_match(fname, m, kFrameFileRe)) continue;
             std::string stem = entry.path().stem().string();
             int b = -1, fi = -1;
-            if (!ParseStem(stem, b, fi)) continue;
+            if (!cli::ParseFrameStem(stem, b, fi)) continue;
             if (!boards_filter.empty() && !boards_filter.count(b)) continue;
             dedup.insert(stem);
         }
@@ -253,7 +163,7 @@ std::map<int, std::vector<std::pair<int, std::string>>> CollectByBoard(const Arg
     std::map<int, std::vector<std::pair<int, std::string>>> by_board;
     for (const auto& stem : dedup) {
         int b = -1, fi = -1;
-        if (!ParseStem(stem, b, fi)) continue;
+        if (!cli::ParseFrameStem(stem, b, fi)) continue;
         by_board[b].emplace_back(fi, stem);
     }
     for (auto& [_, frames] : by_board) {

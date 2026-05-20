@@ -26,11 +26,11 @@
 #include <opencv2/imgcodecs.hpp>
 #include <regex>
 #include <set>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
+#include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 #include "knots/inference.hpp"
 
@@ -64,33 +64,25 @@ void PrintUsage() {
                  "  --force                  overwrite existing outputs\n";
 }
 
-bool RequireNext(const std::string& flag, int i, int argc) {
-    if (i + 1 >= argc) {
-        std::cerr << "missing value for " << flag << "\n";
-        return false;
-    }
-    return true;
-}
-
 bool ParseArgs(int argc, char** argv, Args& out) {
     int i = 1;  // skip subcommand name
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--model" && RequireNext(a, i, argc)) {
+        if (a == "--model" && cli::RequireNext(a, i, argc)) {
             out.model = argv[++i];
-        } else if (a == "--input-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--input-dir" && cli::RequireNext(a, i, argc)) {
             out.input_dir = argv[++i];
-        } else if (a == "--output-dir" && RequireNext(a, i, argc)) {
+        } else if (a == "--output-dir" && cli::RequireNext(a, i, argc)) {
             out.output_dir = argv[++i];
-        } else if (a == "--frames" && RequireNext(a, i, argc)) {
+        } else if (a == "--frames" && cli::RequireNext(a, i, argc)) {
             out.frames_csv = argv[++i];
-        } else if (a == "--frames-file" && RequireNext(a, i, argc)) {
+        } else if (a == "--frames-file" && cli::RequireNext(a, i, argc)) {
             out.frames_file = argv[++i];
-        } else if (a == "--splits-csv" && RequireNext(a, i, argc)) {
+        } else if (a == "--splits-csv" && cli::RequireNext(a, i, argc)) {
             out.splits_csv = argv[++i];
-        } else if (a == "--split" && RequireNext(a, i, argc)) {
+        } else if (a == "--split" && cli::RequireNext(a, i, argc)) {
             out.split = argv[++i];
-        } else if (a == "--conf" && RequireNext(a, i, argc)) {
+        } else if (a == "--conf" && cli::RequireNext(a, i, argc)) {
             out.conf = std::stof(argv[++i]);
         } else if (a == "--cpu") {
             out.prefer_cuda = false;
@@ -115,97 +107,20 @@ bool ParseArgs(int argc, char** argv, Args& out) {
     return true;
 }
 
-std::vector<std::string> SplitCsvLine(const std::string& line) {
-    std::vector<std::string> fields;
-    std::string cur;
-    bool in_quotes = false;
-    for (char c : line) {
-        if (c == '"') {
-            in_quotes = !in_quotes;
-        } else if (c == ',' && !in_quotes) {
-            fields.push_back(cur);
-            cur.clear();
-        } else {
-            cur += c;
-        }
-    }
-    fields.push_back(cur);
-    return fields;
-}
-
-std::unordered_set<int> LoadBoardsInSplit(const fs::path& csv, const std::string& want) {
-    std::ifstream f(csv);
-    if (!f) throw std::runtime_error("cannot open " + csv.string());
-    std::string line;
-    if (!std::getline(f, line)) throw std::runtime_error("empty splits CSV");
-    auto header = SplitCsvLine(line);
-    int board_col = -1, split_col = -1;
-    for (size_t c = 0; c < header.size(); ++c) {
-        if (header[c] == "board") board_col = static_cast<int>(c);
-        if (header[c] == "split") split_col = static_cast<int>(c);
-    }
-    if (board_col < 0 || split_col < 0) {
-        throw std::runtime_error("splits CSV missing 'board' or 'split' column");
-    }
-    std::unordered_set<int> boards;
-    while (std::getline(f, line)) {
-        if (line.empty()) continue;
-        auto cols = SplitCsvLine(line);
-        if (static_cast<int>(cols.size()) <= std::max(board_col, split_col)) continue;
-        if (cols[split_col] != want) continue;
-        try {
-            boards.insert(std::stoi(cols[board_col]));
-        } catch (...) { /* skip malformed */
-        }
-    }
-    return boards;
-}
-
-const std::regex kFrameStemRe(R"(^(\d+)_(\d+)$)");
 const std::regex kFrameFileRe(R"(^(\d+)_(\d+)\.png$)");
-
-int BoardFromStem(const std::string& stem) {
-    std::smatch m;
-    if (!std::regex_match(stem, m, kFrameStemRe)) return -1;
-    try {
-        return std::stoi(m[1]);
-    } catch (...) {
-        return -1;
-    }
-}
 
 std::vector<std::string> CollectFrameStems(const Args& args) {
     std::vector<std::string> explicit_stems;
-    auto split_comma = [](const std::string& s) {
-        std::vector<std::string> out;
-        std::stringstream ss(s);
-        std::string tok;
-        while (std::getline(ss, tok, ',')) {
-            auto a = tok.find_first_not_of(" \t");
-            auto b = tok.find_last_not_of(" \t");
-            if (a == std::string::npos) continue;
-            out.push_back(tok.substr(a, b - a + 1));
-        }
-        return out;
-    };
     if (!args.frames_csv.empty()) {
-        explicit_stems = split_comma(args.frames_csv);
+        explicit_stems = cli::ParseFramesList(args.frames_csv);
     }
     if (!args.frames_file.empty()) {
-        std::ifstream f(args.frames_file);
-        if (!f) throw std::runtime_error("cannot open " + args.frames_file.string());
-        std::string line;
-        while (std::getline(f, line)) {
-            auto a = line.find_first_not_of(" \t");
-            if (a == std::string::npos) continue;
-            if (line[a] == '#') continue;
-            auto b = line.find_last_not_of(" \t");
-            explicit_stems.push_back(line.substr(a, b - a + 1));
-        }
+        auto from_file = cli::ParseFramesFile(args.frames_file);
+        explicit_stems.insert(explicit_stems.end(), from_file.begin(), from_file.end());
     }
     std::unordered_set<int> boards_filter;
     if (!args.splits_csv.empty()) {
-        boards_filter = LoadBoardsInSplit(args.splits_csv, args.split);
+        boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
         if (boards_filter.empty()) {
             std::cerr << "warning: no boards match split " << args.split << " in "
                       << args.splits_csv << "\n";
@@ -214,8 +129,8 @@ std::vector<std::string> CollectFrameStems(const Args& args) {
     std::set<std::string> dedup;
     if (!explicit_stems.empty()) {
         for (const auto& s : explicit_stems) {
-            const int b = BoardFromStem(s);
-            if (b < 0) {
+            int b = -1, fi = -1;
+            if (!cli::ParseFrameStem(s, b, fi)) {
                 std::cerr << "warning: unrecognised frame stem: " << s << "\n";
                 continue;
             }
@@ -229,8 +144,8 @@ std::vector<std::string> CollectFrameStems(const Args& args) {
             std::smatch m;
             if (!std::regex_match(fname, m, kFrameFileRe)) continue;
             std::string stem = entry.path().stem().string();
-            const int b = BoardFromStem(stem);
-            if (b < 0) continue;
+            int b = -1, fi = -1;
+            if (!cli::ParseFrameStem(stem, b, fi)) continue;
             if (!boards_filter.empty() && !boards_filter.count(b)) continue;
             dedup.insert(stem);
         }

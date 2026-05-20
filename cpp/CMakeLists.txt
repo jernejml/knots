@@ -39,6 +39,7 @@ add_executable(knots
     src/inference.cpp
     src/eval.cpp
     src/run.cpp
+    src/cli_util.cpp
 )
 
 target_include_directories(knots PRIVATE
