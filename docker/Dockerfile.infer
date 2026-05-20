@@ -8,11 +8,11 @@
 #   docker build -f docker/Dockerfile.infer -t knots-infer .
 #
 # Run (smoke test against an exported model):
-#   docker run --rm \
+#   docker run --rm --gpus all \
 #     -v "$PWD/models:/work/models:ro" \
 #     knots-infer /work/cpp/build/knots /work/models/best.onnx
 
-FROM ubuntu:24.04
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -30,18 +30,21 @@ RUN apt-get update \
         nlohmann-json3-dev \
  && rm -rf /var/lib/apt/lists/*
 
-# ONNX Runtime: ship a known-good tarball release rather than depending on
-# a distro package. The lib lands at /opt/onnxruntime/{include,lib}; we
-# expose ONNXRUNTIME_ROOT so the CMake FindOnnxRuntime module finds it,
-# and prepend its lib dir to LD_LIBRARY_PATH so the resulting binary runs.
+# ONNX Runtime GPU variant. The host CUDA/cuDNN runtime is provided by the
+# base image; the tarball ships ORT's CUDA bindings. ORT 1.20.x supports
+# CUDA 12.x; the 12.8 host should be ABI-compatible.
+#
+# The lib lands at /opt/onnxruntime/{include,lib}; we expose ONNXRUNTIME_ROOT
+# so the CMake FindOnnxRuntime module finds it, and prepend its lib dir to
+# LD_LIBRARY_PATH so the resulting binary loads its .so files at runtime.
 ARG ORT_VERSION=1.20.1
-RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz \
- && tar -xzf onnxruntime-linux-x64-${ORT_VERSION}.tgz -C /opt \
- && mv /opt/onnxruntime-linux-x64-${ORT_VERSION} /opt/onnxruntime \
- && rm onnxruntime-linux-x64-${ORT_VERSION}.tgz
+RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-gpu-${ORT_VERSION}.tgz \
+ && tar -xzf onnxruntime-linux-x64-gpu-${ORT_VERSION}.tgz -C /opt \
+ && mv /opt/onnxruntime-linux-x64-gpu-${ORT_VERSION} /opt/onnxruntime \
+ && rm onnxruntime-linux-x64-gpu-${ORT_VERSION}.tgz
 
 ENV ONNXRUNTIME_ROOT=/opt/onnxruntime
-ENV LD_LIBRARY_PATH=/opt/onnxruntime/lib
+ENV LD_LIBRARY_PATH=/opt/onnxruntime/lib:${LD_LIBRARY_PATH}
 
 # Build the project.
 COPY cpp/ ./cpp/

@@ -77,12 +77,29 @@ int main(int argc, char** argv) {
         Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "knots-smoke");
         Ort::SessionOptions opts;
         opts.SetIntraOpNumThreads(1);
+
+        // Try CUDA EP first; fall back to CPU. The session works either
+        // way — this just controls which device the forward pass runs on.
+        // If the binary is run without `--gpus all` (or without an NVIDIA
+        // GPU at all), AppendExecutionProvider_CUDA throws and we drop
+        // back to default (CPU).
+        std::string ep = "cpu";
+        try {
+            OrtCUDAProviderOptions cuda_opts{};
+            cuda_opts.device_id = 0;
+            opts.AppendExecutionProvider_CUDA(cuda_opts);
+            ep = "cuda:0";
+        } catch (const Ort::Exception& e) {
+            std::cerr << "(CUDA EP unavailable: " << e.what() << " — using CPU)\n";
+        }
+
         Ort::Session session(env, model_path.c_str(), opts);
 
         Ort::AllocatorWithDefaultOptions alloc;
 
         std::cout << "model: " << model_path.string() << "\n";
-        std::cout << "providers:";
+        std::cout << "session EP: " << ep << "\n";
+        std::cout << "available providers:";
         for (const auto& p : Ort::GetAvailableProviders()) {
             std::cout << " " << p;
         }
