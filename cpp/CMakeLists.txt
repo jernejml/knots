@@ -32,6 +32,8 @@ find_package(OnnxRuntime REQUIRED)
 
 add_executable(knots
     src/main.cpp
+    src/infer.cpp
+    src/stitch.cpp
     src/inference.cpp
 )
 
