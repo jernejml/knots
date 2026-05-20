@@ -3,17 +3,18 @@
 
 For each requested frame, builds a composite image with the requested panels
 stacked vertically (default) or horizontally. Built-in panels:
-    raw      original image, no overlay
-    bbox     image + YOLO bbox rectangles
-    polygon  image + YOLO-seg polygons (translucent fill + outline)
+    raw          original image, no overlay
+    bbox         image + YOLO bbox rectangles
+    polygon      image + YOLO-seg polygons (translucent fill + outline)
+    predictions  image + polygons from C++-inference JSON output
 
-Adding a new panel type is one function + one PANELS-dict entry; the model-
-predictions panel would slot in here once YOLO training produces outputs.
+Adding a new panel type is one function + one PANELS-dict entry.
 
 Inputs (all read-only):
     --data-dir/images/{frame_id}.png
     --bbox-labels-dir/{frame_id}.txt    (YOLO bbox: cls cx cy w h, normalised)
     --seg-labels-dir/{frame_id}.txt     (YOLO-seg: cls x1 y1 x2 y2 ... xN yN)
+    --predictions-dir/{frame_id}.json   (cpp/knots output)
 
 Output:
     --output-dir/{frame_id}.png
@@ -25,6 +26,7 @@ Frame IDs are {board}_{frame}, e.g. 0_5. Exactly one of --frame, --frames,
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -66,6 +68,28 @@ def parse_yolo_bboxes(label_path: Path, w: int, h: int) -> list[tuple[int, int, 
         if x2 > x1 and y2 > y1:
             boxes.append((x1, y1, x2, y2))
     return boxes
+
+
+def parse_predictions_json(path: Path) -> list[list[tuple[int, int]]]:
+    """Read C++/knots JSON output, return polygons in source-image px coords.
+
+    The JSON schema is {"detections": [{"polygon": [[x, y], ...]}, ...]}.
+    Coordinates are already in source-image pixel space (the C++ binary
+    inverse-letterboxes before writing), so no resize is needed.
+    """
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
+    polygons: list[list[tuple[int, int]]] = []
+    for det in data.get("detections", []):
+        pts = det.get("polygon", [])
+        poly = [(int(round(x)), int(round(y))) for x, y in pts]
+        if len(poly) >= 3:
+            polygons.append(poly)
+    return polygons
 
 
 def parse_yolo_seg(label_path: Path, w: int, h: int) -> list[list[tuple[int, int]]]:
@@ -124,10 +148,34 @@ def render_polygon(image: Image.Image, *,
     return composed
 
 
+def render_predictions(image: Image.Image, *,
+                       predictions: list[list[tuple[int, int]]],
+                       prediction_color: tuple[int, int, int],
+                       prediction_alpha: float,
+                       **_kwargs) -> Image.Image:
+    # Same draw path as render_polygon but a separate function so the color /
+    # alpha knobs and the source field are visibly distinct in stack traces
+    # and in --help. Source is JSON instead of YOLO-seg .txt.
+    if not predictions:
+        return image.copy()
+    base = image.convert("RGBA")
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    fill_alpha = max(0, min(255, int(round(255 * prediction_alpha))))
+    fill = prediction_color + (fill_alpha,)
+    outline = prediction_color + (255,)
+    o_draw = ImageDraw.Draw(overlay)
+    for poly in predictions:
+        if len(poly) >= 3:
+            o_draw.polygon(poly, fill=fill, outline=outline)
+    composed = Image.alpha_composite(base, overlay).convert("RGB")
+    return composed
+
+
 PANELS = {
     "raw": render_raw,
     "bbox": render_bbox,
     "polygon": render_polygon,
+    "predictions": render_predictions,
 }
 
 
@@ -193,6 +241,8 @@ def main() -> None:
                     help="YOLO bbox labels dir (default: --data-dir/labels).")
     ap.add_argument("--seg-labels-dir", type=Path, default=REPO_ROOT / "labels_seg",
                     help="YOLO-seg polygon labels dir.")
+    ap.add_argument("--predictions-dir", type=Path, default=REPO_ROOT / "cpp_out",
+                    help="C++ inference JSON outputs (one .json per frame).")
     ap.add_argument("--output-dir", type=Path, default=REPO_ROOT / "viz",
                     help="Composites are written here.")
 
@@ -213,11 +263,15 @@ def main() -> None:
     ap.add_argument("--polygon-color", type=parse_hex_color, default=parse_hex_color("#ffff00"))
     ap.add_argument("--polygon-alpha", type=float, default=0.35,
                     help="Filled-polygon transparency in [0, 1].")
+    ap.add_argument("--prediction-color", type=parse_hex_color, default=parse_hex_color("#00e676"),
+                    help="Color for model-prediction polygons (distinct from GT yellow).")
+    ap.add_argument("--prediction-alpha", type=float, default=0.35)
     args = ap.parse_args()
 
     images_dir = args.data_dir / "images"
     bbox_dir = args.bbox_labels_dir or (args.data_dir / "labels")
     seg_dir = args.seg_labels_dir
+    preds_dir = args.predictions_dir
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     panel_names = [s.strip() for s in args.panels.split(",") if s.strip()]
@@ -244,15 +298,18 @@ def main() -> None:
 
         bboxes = parse_yolo_bboxes(bbox_dir / f"{fid}.txt", w, h)
         polygons = parse_yolo_seg(seg_dir / f"{fid}.txt", w, h)
+        predictions = parse_predictions_json(preds_dir / f"{fid}.json")
 
         panel_imgs = []
         for name in panel_names:
             panel = PANELS[name](
                 base,
-                bboxes=bboxes, polygons=polygons,
+                bboxes=bboxes, polygons=polygons, predictions=predictions,
                 bbox_color=args.bbox_color,
                 polygon_color=args.polygon_color,
                 polygon_alpha=args.polygon_alpha,
+                prediction_color=args.prediction_color,
+                prediction_alpha=args.prediction_alpha,
             )
             if args.label_panels:
                 panel = add_label(panel, name)
