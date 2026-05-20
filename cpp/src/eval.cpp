@@ -2,8 +2,7 @@
 // per-board GT polygons.
 //
 // Inputs are two directories of per-board JSONs in the schema written by
-// `knots stitch` and `knots gt-stitch`. The algorithm matches the Python
-// reference in scripts/eval_boards.py:
+// `knots stitch` and `knots gt-stitch`. The algorithm:
 //
 //   1. For each board, compute pairwise bbox IoU between prediction and GT
 //      polygons.
@@ -278,7 +277,7 @@ std::vector<Match> GreedyMatch(const std::vector<Polygon>& preds, const std::vec
 }
 
 // Optional metrics: nullopt means "denominator was zero". Serialised as JSON
-// null and printed as "n/a" for parity with eval_boards.py.
+// null and printed as "n/a"
 std::optional<float> SafeDiv(double num, double den) {
     if (den <= 0.0) return std::nullopt;
     return static_cast<float>(num / den);
