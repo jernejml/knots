@@ -53,27 +53,20 @@ docker run --rm --gpus all \
   knots-train python3 scripts/export_onnx.py
 ```
 
-With `models/best.onnx` in place, run inference and the test mode:
+With `models/best.onnx` in place, run the one-shot pipeline and the test mode:
 
 ```bash
-# Per-frame inference.
+# Inference + per-board stitching in one pass (no intermediate per-frame JSON).
 docker run --rm --gpus all \
   -v "$PWD/data:/work/data:ro" \
   -v "$PWD/models:/work/models:ro" \
   -v "$PWD/analysis:/work/analysis:ro" \
-  -v "$PWD/cpp_out:/work/cpp_out" \
-  knots-infer knots infer \
+  -v "$PWD/boards_out:/work/boards_out" \
+  knots-infer knots run \
     --model /work/models/best.onnx \
     --input-dir /work/data/images \
-    --output-dir /work/cpp_out \
+    --output-dir /work/boards_out \
     --splits-csv /work/analysis/splits.csv --split test
-
-# Stitch per-frame results into per-board polygons.
-docker run --rm \
-  -v "$PWD/cpp_out:/work/cpp_out:ro" \
-  -v "$PWD/boards_out:/work/boards_out" \
-  knots-infer knots stitch \
-    --input-dir /work/cpp_out --output-dir /work/boards_out
 
 # Test mode: stitch GT bboxes through the same pipeline, then compare.
 docker run --rm \
@@ -93,5 +86,11 @@ docker run --rm \
   knots-infer knots eval \
     --pred-dir /work/boards_out --gt-dir /work/boards_gt
 ```
+
+For finer-grained control, the pipeline can be run as two stages instead
+of one: `knots infer --output-dir <per-frame JSONs>` followed by
+`knots stitch --input-dir <per-frame JSONs> --output-dir <per-board JSONs>`.
+Use the two-stage form when you want to inspect raw per-frame detections
+or resume an interrupted run at frame granularity.
 
 Each script and `knots` subcommand accepts `--help` for full options.

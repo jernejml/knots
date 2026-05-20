@@ -27,4 +27,10 @@ int CmdGtStitch(int argc, char** argv);
 // writes an aggregate JSON.
 int CmdEval(int argc, char** argv);
 
+// One-shot pipeline: per-frame inference + per-board stitching in one pass.
+// Groups frames by board, infers each frame, and raster-unions the per-frame
+// polygons into one {board}.json — no intermediate per-frame JSON written.
+// For finer-grained resume or inspection use CmdInfer + CmdStitch.
+int CmdRun(int argc, char** argv);
+
 }  // namespace knots

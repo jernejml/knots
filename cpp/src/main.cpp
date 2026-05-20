@@ -16,6 +16,7 @@ namespace {
 void PrintTopUsage(const char* prog) {
     std::cerr << "usage: " << prog
               << " <subcommand> [options]\n"
+                 "  run         one-shot: per-frame infer + per-board stitch\n"
                  "  infer       per-frame YOLO11-seg inference\n"
                  "  stitch      per-board raster-union of per-frame inference polygons\n"
                  "  gt-stitch   per-board raster-union of per-frame GT bboxes\n"
@@ -32,6 +33,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::string cmd = argv[1];
+    if (cmd == "run") return knots::CmdRun(argc - 1, argv + 1);
     if (cmd == "infer") return knots::CmdInfer(argc - 1, argv + 1);
     if (cmd == "stitch") return knots::CmdStitch(argc - 1, argv + 1);
     if (cmd == "gt-stitch") return knots::CmdGtStitch(argc - 1, argv + 1);
