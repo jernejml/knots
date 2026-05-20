@@ -1,0 +1,32 @@
+# Code formatter image: bundles clang-format (for cpp/) and ruff (for
+# scripts/) so contributors don't need either tool installed locally.
+#
+# Build:
+#   docker build -f docker/Dockerfile.fmt -t knots-fmt .
+#
+# Run (formats in-place; configs live in formatting/ and are passed
+# explicitly to each tool). Pass --user to keep files owned by the host
+# user — without it, in-place writes flip to root:root on the host.
+#   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" knots-fmt
+#
+# Or invoke a single tool directly:
+#   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" knots-fmt \
+#     clang-format --style=file:formatting/.clang-format -i cpp/src/*.cpp
+#   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" knots-fmt \
+#     ruff format --config formatting/ruff.toml scripts/
+
+FROM python:3.13-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        clang-format \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir ruff==0.8.4
+
+WORKDIR /work
+
+# Default command: format the whole repo in place. Override with `docker
+# run … knots-fmt <cmd>` to run something else.
+CMD ["bash", "-c", "clang-format --style=file:formatting/.clang-format -i cpp/src/*.cpp cpp/include/knots/*.hpp && ruff format --config formatting/ruff.toml scripts/"]

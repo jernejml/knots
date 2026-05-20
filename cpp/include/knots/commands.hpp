@@ -21,4 +21,10 @@ int CmdStitch(int argc, char** argv);
 // to CmdStitch's so the eval script can compare apples to apples.
 int CmdGtStitch(int argc, char** argv);
 
+// Test mode: compares per-board prediction polygons against per-board GT
+// polygons. Greedy bbox-IoU matching, mask IoU on matched pairs, P/R/F1
+// plus extras (FP) and missing (FN) counts. Prints a per-board table and
+// writes an aggregate JSON.
+int CmdEval(int argc, char** argv);
+
 }  // namespace knots

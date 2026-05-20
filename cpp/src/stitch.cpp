@@ -4,19 +4,18 @@
 // projects each frame's polygons into board coords via stride_px, raster-
 // unions overlapping shapes, and writes one {board}.json per board.
 
-#include "knots/commands.hpp"
-#include "knots/stitching.hpp"
-
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <nlohmann/json.hpp>
 #include <regex>
 #include <string>
 #include <vector>
 
-#include <nlohmann/json.hpp>
+#include "knots/commands.hpp"
+#include "knots/stitching.hpp"
 
 namespace fs = std::filesystem;
 
@@ -33,13 +32,12 @@ struct StitchArgs {
 };
 
 void PrintUsage() {
-    std::cerr <<
-        "usage: knots stitch --input-dir IN --output-dir OUT [opts]\n"
-        "  --input-dir DIR        per-frame JSONs from `knots infer`\n"
-        "  --output-dir DIR       per-board JSONs (one .json per board)\n"
-        "  --stride-px N          frame stride in pixels (default 320)\n"
-        "  --simplify-eps F       approxPolyDP eps in board px (default 1.0)\n"
-        "  --force                overwrite existing outputs\n";
+    std::cerr << "usage: knots stitch --input-dir IN --output-dir OUT [opts]\n"
+                 "  --input-dir DIR        per-frame JSONs from `knots infer`\n"
+                 "  --output-dir DIR       per-board JSONs (one .json per board)\n"
+                 "  --stride-px N          frame stride in pixels (default 320)\n"
+                 "  --simplify-eps F       approxPolyDP eps in board px (default 1.0)\n"
+                 "  --force                overwrite existing outputs\n";
 }
 
 bool RequireNext(const std::string& flag, int i, int argc) {
@@ -54,13 +52,19 @@ bool ParseArgs(int argc, char** argv, StitchArgs& out) {
     int i = 1;
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--input-dir" && RequireNext(a, i, argc))         { out.input_dir = argv[++i]; }
-        else if (a == "--output-dir" && RequireNext(a, i, argc))   { out.output_dir = argv[++i]; }
-        else if (a == "--stride-px" && RequireNext(a, i, argc))    { out.stride_px = std::stoi(argv[++i]); }
-        else if (a == "--simplify-eps" && RequireNext(a, i, argc)) { out.simplify_eps_px = std::stof(argv[++i]); }
-        else if (a == "--force")                                   { out.force = true; }
-        else if (a == "--help" || a == "-h")                       { return false; }
-        else {
+        if (a == "--input-dir" && RequireNext(a, i, argc)) {
+            out.input_dir = argv[++i];
+        } else if (a == "--output-dir" && RequireNext(a, i, argc)) {
+            out.output_dir = argv[++i];
+        } else if (a == "--stride-px" && RequireNext(a, i, argc)) {
+            out.stride_px = std::stoi(argv[++i]);
+        } else if (a == "--simplify-eps" && RequireNext(a, i, argc)) {
+            out.simplify_eps_px = std::stof(argv[++i]);
+        } else if (a == "--force") {
+            out.force = true;
+        } else if (a == "--help" || a == "-h") {
+            return false;
+        } else {
             std::cerr << "unrecognised arg: " << a << "\n";
             return false;
         }
@@ -76,7 +80,6 @@ bool ParseArgs(int argc, char** argv, StitchArgs& out) {
 const std::regex kJsonStemRe(R"(^(\d+)_(\d+)$)");
 
 }  // namespace
-
 
 int CmdStitch(int argc, char** argv) {
     StitchArgs args;
@@ -127,11 +130,11 @@ int CmdStitch(int argc, char** argv) {
             ++n_files;
         }
 
-        std::cerr << "knots stitch: " << n_files << " frame JSON(s) across "
-                  << by_board.size() << " board(s)"
+        std::cerr << "knots stitch: " << n_files << " frame JSON(s) across " << by_board.size()
+                  << " board(s)"
                   << (n_unparseable ? " (" + std::to_string(n_unparseable) + " unparseable)" : "")
-                  << "  stride=" << args.stride_px
-                  << "  force=" << (args.force ? "true" : "false") << "\n";
+                  << "  stride=" << args.stride_px << "  force=" << (args.force ? "true" : "false")
+                  << "\n";
 
         size_t n_boards_out = 0, n_skipped = 0, total_polys = 0;
         for (auto& [board, frames] : by_board) {
@@ -140,15 +143,13 @@ int CmdStitch(int argc, char** argv) {
                 ++n_skipped;
                 continue;
             }
-            total_polys += StitchBoardToJson(board, std::move(frames),
-                                             args.stride_px, args.simplify_eps_px,
-                                             out_path);
+            total_polys += StitchBoardToJson(board, std::move(frames), args.stride_px,
+                                             args.simplify_eps_px, out_path);
             ++n_boards_out;
         }
 
         std::cerr << "\nResult\n"
-                  << "  boards processed=" << n_boards_out
-                  << "  skipped=" << n_skipped << "\n"
+                  << "  boards processed=" << n_boards_out << "  skipped=" << n_skipped << "\n"
                   << "  total per-board polygons=" << total_polys << "\n"
                   << "  output dir: " << args.output_dir << "\n";
     } catch (const std::exception& e) {

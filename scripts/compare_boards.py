@@ -96,8 +96,9 @@ def load_frames_for_board(images_dir: Path, board: int) -> list[tuple[int, Path]
     return result
 
 
-def stitch_board(images_dir: Path, board: int,
-                 stride_px: int) -> tuple[Image.Image, list[tuple[int, int, int]]] | None:
+def stitch_board(
+    images_dir: Path, board: int, stride_px: int
+) -> tuple[Image.Image, list[tuple[int, int, int]]] | None:
     """Build the stitched board image. Returns (canvas, frame_info) or None.
 
     `frame_info` is a list of (frame_idx, frame_w, frame_h) the overlay panels
@@ -121,8 +122,11 @@ def stitch_board(images_dir: Path, board: int,
         with Image.open(path) as img:
             rgb = img.convert("RGB")
             if rgb.height != board_h:
-                print(f"  WARN board {board} frame {frame_idx}: "
-                      f"H={rgb.height} vs board H={board_h}", file=sys.stderr)
+                print(
+                    f"  WARN board {board} frame {frame_idx}: "
+                    f"H={rgb.height} vs board H={board_h}",
+                    file=sys.stderr,
+                )
             canvas.paste(rgb, (frame_idx * stride_px, 0))
             frame_info.append((frame_idx, rgb.width, rgb.height))
     return canvas, frame_info
@@ -132,28 +136,35 @@ def render_raw(canvas: Image.Image, **_kwargs) -> Image.Image:
     return canvas.copy()
 
 
-def render_bbox(canvas: Image.Image, *,
-                bbox_labels_dir: Path, board: int,
-                frame_info: list[tuple[int, int, int]],
-                stride_px: int,
-                bbox_color: tuple[int, int, int],
-                **_kwargs) -> Image.Image:
+def render_bbox(
+    canvas: Image.Image,
+    *,
+    bbox_labels_dir: Path,
+    board: int,
+    frame_info: list[tuple[int, int, int]],
+    stride_px: int,
+    bbox_color: tuple[int, int, int],
+    **_kwargs,
+) -> Image.Image:
     out = canvas.copy()
     draw = ImageDraw.Draw(out)
     for frame_idx, w, h in frame_info:
         boxes = parse_yolo_bboxes(bbox_labels_dir / f"{board}_{frame_idx}.txt", w, h)
         dx = frame_idx * stride_px
-        for (x1, y1, x2, y2) in boxes:
-            draw.rectangle([(x1 + dx, y1), (x2 + dx - 1, y2 - 1)],
-                           outline=bbox_color, width=2)
+        for x1, y1, x2, y2 in boxes:
+            draw.rectangle([(x1 + dx, y1), (x2 + dx - 1, y2 - 1)], outline=bbox_color, width=2)
     return out
 
 
-def render_knots(canvas: Image.Image, *,
-                 boards_pred_dir: Path, board: int,
-                 knots_color: tuple[int, int, int],
-                 knots_alpha: float,
-                 **_kwargs) -> Image.Image:
+def render_knots(
+    canvas: Image.Image,
+    *,
+    boards_pred_dir: Path,
+    board: int,
+    knots_color: tuple[int, int, int],
+    knots_alpha: float,
+    **_kwargs,
+) -> Image.Image:
     path = boards_pred_dir / f"{board}.json"
     if not path.exists():
         return canvas.copy()
@@ -253,34 +264,64 @@ def load_board_ids(args: argparse.Namespace) -> list[int]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
-    ap.add_argument("--bbox-labels-dir", type=Path, default=None,
-                    help="YOLO bbox labels dir (default: --data-dir/labels).")
-    ap.add_argument("--boards-pred-dir", type=Path, default=REPO_ROOT / "boards_out",
-                    help="Per-board JSONs from `knots stitch`.")
-    ap.add_argument("--output-dir", type=Path, default=REPO_ROOT / "viz" / "boards",
-                    help="Composites are written here.")
+    ap.add_argument(
+        "--bbox-labels-dir",
+        type=Path,
+        default=None,
+        help="YOLO bbox labels dir (default: --data-dir/labels).",
+    )
+    ap.add_argument(
+        "--boards-pred-dir",
+        type=Path,
+        default=REPO_ROOT / "boards_out",
+        help="Per-board JSONs from `knots stitch`.",
+    )
+    ap.add_argument(
+        "--output-dir",
+        type=Path,
+        default=REPO_ROOT / "viz" / "boards",
+        help="Composites are written here.",
+    )
 
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--board", type=int, default=None, help="Single board ID.")
-    src.add_argument("--boards", type=str, default=None,
-                     help="Comma-separated board IDs, e.g. 0,5,100.")
-    src.add_argument("--boards-file", type=Path, default=None,
-                     help="File with one board ID per line; '#' comments allowed.")
-    src.add_argument("--all", action="store_true",
-                     help="Render every board with a JSON in --boards-pred-dir.")
+    src.add_argument(
+        "--boards", type=str, default=None, help="Comma-separated board IDs, e.g. 0,5,100."
+    )
+    src.add_argument(
+        "--boards-file",
+        type=Path,
+        default=None,
+        help="File with one board ID per line; '#' comments allowed.",
+    )
+    src.add_argument(
+        "--all", action="store_true", help="Render every board with a JSON in --boards-pred-dir."
+    )
 
-    ap.add_argument("--panels", type=str, default="raw,bbox,knots",
-                    help=f"Comma list of panel names in render order. "
-                         f"Available: {','.join(PANELS)}.")
+    ap.add_argument(
+        "--panels",
+        type=str,
+        default="raw,bbox,knots",
+        help=f"Comma list of panel names in render order. " f"Available: {','.join(PANELS)}.",
+    )
     ap.add_argument("--stack", choices=("vertical", "horizontal"), default="vertical")
     ap.add_argument("--label-panels", action=argparse.BooleanOptionalAction, default=True)
-    ap.add_argument("--stride-px", type=int, default=STRIDE_PX_DEFAULT,
-                    help="Frame stride; must match `knots stitch` (default 320).")
-    ap.add_argument("--max-width", type=int, default=4096,
-                    help="Downscale composite to fit this width. 0 = no downscale.")
+    ap.add_argument(
+        "--stride-px",
+        type=int,
+        default=STRIDE_PX_DEFAULT,
+        help="Frame stride; must match `knots stitch` (default 320).",
+    )
+    ap.add_argument(
+        "--max-width",
+        type=int,
+        default=4096,
+        help="Downscale composite to fit this width. 0 = no downscale.",
+    )
     ap.add_argument("--bbox-color", type=parse_hex_color, default=parse_hex_color("#ff3030"))
     ap.add_argument("--knots-color", type=parse_hex_color, default=parse_hex_color("#00e676"))
     ap.add_argument("--knots-alpha", type=float, default=0.35)
@@ -299,7 +340,9 @@ def main() -> None:
     if not board_ids:
         raise SystemExit("no boards to render")
 
-    print(f"compare_boards: {len(board_ids)} board(s)  panels={','.join(panel_names)}  stack={args.stack}")
+    print(
+        f"compare_boards: {len(board_ids)} board(s)  panels={','.join(panel_names)}  stack={args.stack}"
+    )
     print(f"  output={rel_to_root(args.output_dir)}/")
 
     n_ok = 0

@@ -3,17 +3,13 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
-
 #include <nlohmann/json.hpp>
 #include <opencv2/imgproc.hpp>
 
 namespace knots {
 
-size_t StitchBoardToJson(int board,
-                         std::vector<FramePolys> frames,
-                         int stride_px,
-                         float simplify_eps_px,
-                         const std::filesystem::path& out_path) {
+size_t StitchBoardToJson(int board, std::vector<FramePolys> frames, int stride_px,
+                         float simplify_eps_px, const std::filesystem::path& out_path) {
     if (frames.empty()) return 0;
 
     std::sort(frames.begin(), frames.end(),

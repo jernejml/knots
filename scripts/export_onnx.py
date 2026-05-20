@@ -34,22 +34,47 @@ def latest_best_weights(runs_dir: Path) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--weights", type=Path, default=None,
-                    help="Path to best.pt; default = most recent under --runs-dir.")
-    ap.add_argument("--runs-dir", type=Path, default=REPO_ROOT / "runs" / "segment",
-                    help="Where to look for runs (auto-pick latest best.pt).")
-    ap.add_argument("--out-dir", type=Path, default=REPO_ROOT / "models",
-                    help="Stable destination for the exported ONNX file.")
-    ap.add_argument("--imgsz", type=int, default=640,
-                    help="Must match training imgsz; YOLO letterboxes to this square.")
-    ap.add_argument("--opset", type=int, default=17,
-                    help="ONNX opset version; 17 has wider runtime compatibility than 19+.")
-    ap.add_argument("--simplify", action="store_true",
-                    help="Run onnxslim on the graph (requires onnxslim installed).")
-    ap.add_argument("--device", default="cpu",
-                    help="Export device; CPU is fine and avoids GPU init.")
+    ap.add_argument(
+        "--weights",
+        type=Path,
+        default=None,
+        help="Path to best.pt; default = most recent under --runs-dir.",
+    )
+    ap.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=REPO_ROOT / "runs" / "segment",
+        help="Where to look for runs (auto-pick latest best.pt).",
+    )
+    ap.add_argument(
+        "--out-dir",
+        type=Path,
+        default=REPO_ROOT / "models",
+        help="Stable destination for the exported ONNX file.",
+    )
+    ap.add_argument(
+        "--imgsz",
+        type=int,
+        default=640,
+        help="Must match training imgsz; YOLO letterboxes to this square.",
+    )
+    ap.add_argument(
+        "--opset",
+        type=int,
+        default=17,
+        help="ONNX opset version; 17 has wider runtime compatibility than 19+.",
+    )
+    ap.add_argument(
+        "--simplify",
+        action="store_true",
+        help="Run onnxslim on the graph (requires onnxslim installed).",
+    )
+    ap.add_argument(
+        "--device", default="cpu", help="Export device; CPU is fine and avoids GPU init."
+    )
     args = ap.parse_args()
 
     weights = args.weights or latest_best_weights(args.runs_dir)
@@ -65,16 +90,18 @@ def main() -> None:
     from ultralytics import YOLO
 
     model = YOLO(str(weights))
-    exported = Path(model.export(
-        format="onnx",
-        imgsz=args.imgsz,
-        opset=args.opset,
-        simplify=args.simplify,
-        dynamic=False,
-        half=False,
-        nms=True,
-        device=args.device,
-    ))
+    exported = Path(
+        model.export(
+            format="onnx",
+            imgsz=args.imgsz,
+            opset=args.opset,
+            simplify=args.simplify,
+            dynamic=False,
+            half=False,
+            nms=True,
+            device=args.device,
+        )
+    )
     if exported.resolve() != dst.resolve():
         dst.write_bytes(exported.read_bytes())
     size_mb = dst.stat().st_size / 1e6

@@ -46,6 +46,7 @@ def rel_to_root(path: Path) -> str:
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
+
 def polygon_bbox(poly: list[list[int]]) -> tuple[int, int, int, int]:
     xs = [p[0] for p in poly]
     ys = [p[1] for p in poly]
@@ -91,9 +92,10 @@ def mask_iou(poly_a: list[list[int]], poly_b: list[list[int]]) -> float:
 # Matching
 # ---------------------------------------------------------------------------
 
-def greedy_match(preds: list[list[list[int]]],
-                 gts: list[list[list[int]]],
-                 threshold: float) -> list[tuple[int, int, float]]:
+
+def greedy_match(
+    preds: list[list[list[int]]], gts: list[list[list[int]]], threshold: float
+) -> list[tuple[int, int, float]]:
     """Greedy bbox-IoU matching. Returns [(pred_idx, gt_idx, bbox_iou)]."""
     pairs: list[tuple[float, int, int]] = []
     pred_bboxes = [polygon_bbox(p) for p in preds]
@@ -110,7 +112,8 @@ def greedy_match(preds: list[list[list[int]]],
     for iou, i, j in pairs:
         if i in matched_p or j in matched_g:
             continue
-        matched_p.add(i); matched_g.add(j)
+        matched_p.add(i)
+        matched_g.add(j)
         out.append((i, j, iou))
     return out
 
@@ -118,6 +121,7 @@ def greedy_match(preds: list[list[list[int]]],
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
+
 
 def safe_div(num: float, den: float) -> float | None:
     return (num / den) if den > 0 else None
@@ -133,20 +137,23 @@ def f1_from_pr(p: float | None, r: float | None) -> float | None:
 # Main
 # ---------------------------------------------------------------------------
 
-def select_boards(args: argparse.Namespace,
-                  pred_dir: Path,
-                  gt_dir: Path) -> list[int]:
+
+def select_boards(args: argparse.Namespace, pred_dir: Path, gt_dir: Path) -> list[int]:
     pred_ids = {int(p.stem) for p in pred_dir.glob("*.json") if p.stem.isdigit()}
     gt_ids = {int(p.stem) for p in gt_dir.glob("*.json") if p.stem.isdigit()}
     common = pred_ids & gt_ids
     only_pred = pred_ids - gt_ids
     only_gt = gt_ids - pred_ids
     if only_pred:
-        print(f"warning: {len(only_pred)} board(s) in pred dir but not GT: "
-              f"{sorted(only_pred)[:5]}{'...' if len(only_pred) > 5 else ''}")
+        print(
+            f"warning: {len(only_pred)} board(s) in pred dir but not GT: "
+            f"{sorted(only_pred)[:5]}{'...' if len(only_pred) > 5 else ''}"
+        )
     if only_gt:
-        print(f"warning: {len(only_gt)} board(s) in GT dir but not pred: "
-              f"{sorted(only_gt)[:5]}{'...' if len(only_gt) > 5 else ''}")
+        print(
+            f"warning: {len(only_gt)} board(s) in GT dir but not pred: "
+            f"{sorted(only_gt)[:5]}{'...' if len(only_gt) > 5 else ''}"
+        )
 
     if args.boards:
         wanted = {int(s.strip()) for s in args.boards.split(",") if s.strip()}
@@ -165,25 +172,45 @@ def select_boards(args: argparse.Namespace,
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--boards-pred-dir", type=Path,
-                    default=REPO_ROOT / "boards_out",
-                    help="Per-board predictions (`knots stitch` output).")
-    ap.add_argument("--boards-gt-dir", type=Path,
-                    default=REPO_ROOT / "boards_gt",
-                    help="Per-board GT polygons (`knots gt-stitch` output).")
-    ap.add_argument("--output", type=Path,
-                    default=REPO_ROOT / "analysis" / "eval_boards.json",
-                    help="JSON output with per-board + aggregate metrics.")
-    ap.add_argument("--match-iou", type=float, default=0.5,
-                    help="Bbox-IoU threshold for greedy matching (default 0.5).")
-    ap.add_argument("--boards", type=str, default="",
-                    help="Comma-separated board IDs to restrict to.")
-    ap.add_argument("--boards-file", type=Path, default=None,
-                    help="File with one board ID per line; '#' comments allowed.")
-    ap.add_argument("--no-write", action="store_true",
-                    help="Skip JSON output; print to stdout only.")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--boards-pred-dir",
+        type=Path,
+        default=REPO_ROOT / "boards_out",
+        help="Per-board predictions (`knots stitch` output).",
+    )
+    ap.add_argument(
+        "--boards-gt-dir",
+        type=Path,
+        default=REPO_ROOT / "boards_gt",
+        help="Per-board GT polygons (`knots gt-stitch` output).",
+    )
+    ap.add_argument(
+        "--output",
+        type=Path,
+        default=REPO_ROOT / "analysis" / "eval_boards.json",
+        help="JSON output with per-board + aggregate metrics.",
+    )
+    ap.add_argument(
+        "--match-iou",
+        type=float,
+        default=0.5,
+        help="Bbox-IoU threshold for greedy matching (default 0.5).",
+    )
+    ap.add_argument(
+        "--boards", type=str, default="", help="Comma-separated board IDs to restrict to."
+    )
+    ap.add_argument(
+        "--boards-file",
+        type=Path,
+        default=None,
+        help="File with one board ID per line; '#' comments allowed.",
+    )
+    ap.add_argument(
+        "--no-write", action="store_true", help="Skip JSON output; print to stdout only."
+    )
     args = ap.parse_args()
 
     if not args.boards_pred_dir.is_dir():
@@ -217,19 +244,21 @@ def main() -> None:
         recall = safe_div(tp, tp + fn)
         f1 = f1_from_pr(precision, recall)
 
-        per_board.append({
-            "board": board,
-            "pred_count": len(preds),
-            "gt_count": len(gts),
-            "tp": tp,
-            "fp": fp,
-            "fn": fn,
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-            "mean_iou": mean_iou,
-            "matched_ious": [round(v, 4) for v in ious],
-        })
+        per_board.append(
+            {
+                "board": board,
+                "pred_count": len(preds),
+                "gt_count": len(gts),
+                "tp": tp,
+                "fp": fp,
+                "fn": fn,
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+                "mean_iou": mean_iou,
+                "matched_ious": [round(v, 4) for v in ious],
+            }
+        )
 
     # Aggregate.
     total_pred = sum(b["pred_count"] for b in per_board)
@@ -253,34 +282,45 @@ def main() -> None:
         "recall": agg_r,
         "f1": f1_from_pr(agg_p, agg_r),
         "mean_iou_micro": (sum(all_ious) / len(all_ious)) if all_ious else 0.0,
-        "mean_iou_macro": (sum(per_board_means) / len(per_board_means))
-                          if per_board_means else 0.0,
+        "mean_iou_macro": (sum(per_board_means) / len(per_board_means)) if per_board_means else 0.0,
     }
 
     # Stdout summary.
-    header = (f"{'board':>6}  {'pred':>4}  {'gt':>4}  {'tp':>4}  "
-              f"{'fp':>4}  {'fn':>4}  {'P':>6}  {'R':>6}  {'F1':>6}  {'mIoU':>6}")
+    header = (
+        f"{'board':>6}  {'pred':>4}  {'gt':>4}  {'tp':>4}  "
+        f"{'fp':>4}  {'fn':>4}  {'P':>6}  {'R':>6}  {'F1':>6}  {'mIoU':>6}"
+    )
     print(header)
     print("-" * len(header))
     for b in per_board:
+
         def fmt(v: float | None) -> str:
             return f"{v:.3f}" if v is not None else "  n/a"
-        print(f"{b['board']:>6}  {b['pred_count']:>4}  {b['gt_count']:>4}  "
-              f"{b['tp']:>4}  {b['fp']:>4}  {b['fn']:>4}  "
-              f"{fmt(b['precision']):>6}  {fmt(b['recall']):>6}  "
-              f"{fmt(b['f1']):>6}  {b['mean_iou']:.3f}")
+
+        print(
+            f"{b['board']:>6}  {b['pred_count']:>4}  {b['gt_count']:>4}  "
+            f"{b['tp']:>4}  {b['fp']:>4}  {b['fn']:>4}  "
+            f"{fmt(b['precision']):>6}  {fmt(b['recall']):>6}  "
+            f"{fmt(b['f1']):>6}  {b['mean_iou']:.3f}"
+        )
 
     print()
     print("Aggregate")
     print(f"  boards={aggregate['boards']}  match-iou={args.match_iou}")
     print(f"  total: pred={total_pred}  gt={total_gt}  tp={total_tp}  fp={total_fp}  fn={total_fn}")
+
     def fmt(v: float | None) -> str:
         return f"{v:.3f}" if v is not None else "n/a"
-    print(f"  P={fmt(aggregate['precision'])}  "
-          f"R={fmt(aggregate['recall'])}  "
-          f"F1={fmt(aggregate['f1'])}")
-    print(f"  mean IoU micro={aggregate['mean_iou_micro']:.3f}  "
-          f"macro={aggregate['mean_iou_macro']:.3f}")
+
+    print(
+        f"  P={fmt(aggregate['precision'])}  "
+        f"R={fmt(aggregate['recall'])}  "
+        f"F1={fmt(aggregate['f1'])}"
+    )
+    print(
+        f"  mean IoU micro={aggregate['mean_iou_micro']:.3f}  "
+        f"macro={aggregate['mean_iou_macro']:.3f}"
+    )
 
     if not args.no_write:
         args.output.parent.mkdir(parents=True, exist_ok=True)

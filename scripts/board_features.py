@@ -39,33 +39,59 @@ def rel_to_root(path: Path) -> str:
     except ValueError:
         return str(path)
 
+
 SORT_KEYS = (
-    "board", "frames", "gaps", "annots", "annots_per_frame", "frac_large",
-    "avg_dark", "max_dark", "cluster_frac", "edge_frac", "height",
+    "board",
+    "frames",
+    "gaps",
+    "annots",
+    "annots_per_frame",
+    "frac_large",
+    "avg_dark",
+    "max_dark",
+    "cluster_frac",
+    "edge_frac",
+    "height",
 )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--analysis-dir", type=Path, default=REPO_ROOT / "analysis",
-                        help="Directory containing frames.json and annotations.json; "
-                             "board_features.{csv,json} are written here as well.")
-    parser.add_argument("--sort", choices=SORT_KEYS, default="frames",
-                        help="Property to sort boards by (stdout only).")
-    parser.add_argument("--order", choices=("asc", "desc"), default="asc",
-                        help="Sort order for stdout; 'asc' = lowest first.")
-    parser.add_argument("--limit", type=int, default=20,
-                        help="Print at most this many boards to stdout. 0 = print all. "
-                             "The on-disk CSV/JSON always contains every board.")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--analysis-dir",
+        type=Path,
+        default=REPO_ROOT / "analysis",
+        help="Directory containing frames.json and annotations.json; "
+        "board_features.{csv,json} are written here as well.",
+    )
+    parser.add_argument(
+        "--sort",
+        choices=SORT_KEYS,
+        default="frames",
+        help="Property to sort boards by (stdout only).",
+    )
+    parser.add_argument(
+        "--order",
+        choices=("asc", "desc"),
+        default="asc",
+        help="Sort order for stdout; 'asc' = lowest first.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Print at most this many boards to stdout. 0 = print all. "
+        "The on-disk CSV/JSON always contains every board.",
+    )
     args = parser.parse_args()
 
     frames_path = args.analysis_dir / "frames.json"
     annots_path = args.analysis_dir / "annotations.json"
     if not frames_path.is_file() or not annots_path.is_file():
         raise SystemExit(
-            f"Expected {frames_path} and {annots_path}. "
-            "Run scripts/analyze_dataset.py first."
+            f"Expected {frames_path} and {annots_path}. " "Run scripts/analyze_dataset.py first."
         )
 
     frames = json.load(frames_path.open())
@@ -104,20 +130,22 @@ def main() -> None:
         cluster_frac = (cluster_frames / n_frames) if n_frames > 0 else 0.0
         edge_frac = (edge_frames / n_frames) if n_frames > 0 else 0.0
 
-        rows.append({
-            "board": board,
-            "frames": n_frames,
-            "gaps": gaps,
-            "annots": total_annots,
-            "annots_per_frame": annots_per_frame,
-            "frac_large": frac_large,
-            "avg_dark": avg_dark,
-            "max_dark": max_dark,
-            "cluster_frac": cluster_frac,
-            "edge_frac": edge_frac,
-            "height": height_repr,
-            "height_mixed": height_mixed,
-        })
+        rows.append(
+            {
+                "board": board,
+                "frames": n_frames,
+                "gaps": gaps,
+                "annots": total_annots,
+                "annots_per_frame": annots_per_frame,
+                "frac_large": frac_large,
+                "avg_dark": avg_dark,
+                "max_dark": max_dark,
+                "cluster_frac": cluster_frac,
+                "edge_frac": edge_frac,
+                "height": height_repr,
+                "height_mixed": height_mixed,
+            }
+        )
 
     # Write full unsorted-by-config dump (sorted by board id for determinism).
     rows_all = sorted(rows, key=lambda r: r["board"])

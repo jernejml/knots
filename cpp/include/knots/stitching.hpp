@@ -1,9 +1,8 @@
 #pragma once
 
 #include <filesystem>
-#include <vector>
-
 #include <opencv2/core.hpp>
+#include <vector>
 
 namespace knots {
 
@@ -27,10 +26,7 @@ struct FramePolys {
 // overlapping or touching polygons fuse automatically.
 //
 // `frames` is taken by value; it is sorted by frame_idx in place.
-size_t StitchBoardToJson(int board,
-                         std::vector<FramePolys> frames,
-                         int stride_px,
-                         float simplify_eps_px,
-                         const std::filesystem::path& out_path);
+size_t StitchBoardToJson(int board, std::vector<FramePolys> frames, int stride_px,
+                         float simplify_eps_px, const std::filesystem::path& out_path);
 
 }  // namespace knots

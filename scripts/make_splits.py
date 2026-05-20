@@ -117,35 +117,72 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--analysis-dir", type=Path, default=REPO_ROOT / "analysis",
-                        help="Directory containing board_features.json and where splits.{csv,json} are written.")
-    parser.add_argument("--frames-json", type=Path, default=None,
-                        help="Optional override for the per-frame file (used to count frames/annots per split).")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="RNG seed; the only knob that changes the random portion of the split.")
-    parser.add_argument("--ratios", type=str, default="80,10,10",
-                        help="Comma-separated train,val,test percentages.")
+    parser.add_argument(
+        "--analysis-dir",
+        type=Path,
+        default=REPO_ROOT / "analysis",
+        help="Directory containing board_features.json and where splits.{csv,json} are written.",
+    )
+    parser.add_argument(
+        "--frames-json",
+        type=Path,
+        default=None,
+        help="Optional override for the per-frame file (used to count frames/annots per split).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="RNG seed; the only knob that changes the random portion of the split.",
+    )
+    parser.add_argument(
+        "--ratios", type=str, default="80,10,10", help="Comma-separated train,val,test percentages."
+    )
     parser.add_argument(
         "--stratify",
         action="append",
         type=parse_stratify_spec,
         default=None,
         help="Stratification axis as FEATURE:cut1[,cut2,...]. Repeatable. "
-             "Default: 'frames:10,23' and 'cluster_frac:0'.",
+        "Default: 'frames:10,23' and 'cluster_frac:0'.",
     )
-    parser.add_argument("--min-frames-train", type=int, default=3,
-                        help="Boards with frames <= this go straight to train.")
-    parser.add_argument("--force-train", type=parse_id_list, default=[],
-                        help="Comma-separated board IDs pinned to train.")
-    parser.add_argument("--force-val", type=parse_id_list, default=[],
-                        help="Comma-separated board IDs pinned to val.")
-    parser.add_argument("--force-test", type=parse_id_list, default=[],
-                        help="Comma-separated board IDs pinned to test.")
-    parser.add_argument("--audit-threshold", type=float, default=0.20,
-                        help="Flag balance-audit rows with |split_mean/pop_mean - 1| > this.")
-    parser.add_argument("--audit-features", type=str, default=None,
-                        help="Comma-separated list of features to audit. "
-                             "Defaults to every numeric column not used in --stratify.")
+    parser.add_argument(
+        "--min-frames-train",
+        type=int,
+        default=3,
+        help="Boards with frames <= this go straight to train.",
+    )
+    parser.add_argument(
+        "--force-train",
+        type=parse_id_list,
+        default=[],
+        help="Comma-separated board IDs pinned to train.",
+    )
+    parser.add_argument(
+        "--force-val",
+        type=parse_id_list,
+        default=[],
+        help="Comma-separated board IDs pinned to val.",
+    )
+    parser.add_argument(
+        "--force-test",
+        type=parse_id_list,
+        default=[],
+        help="Comma-separated board IDs pinned to test.",
+    )
+    parser.add_argument(
+        "--audit-threshold",
+        type=float,
+        default=0.20,
+        help="Flag balance-audit rows with |split_mean/pop_mean - 1| > this.",
+    )
+    parser.add_argument(
+        "--audit-features",
+        type=str,
+        default=None,
+        help="Comma-separated list of features to audit. "
+        "Defaults to every numeric column not used in --stratify.",
+    )
     args = parser.parse_args()
 
     stratify_specs = args.stratify or [("frames", [10.0, 23.0]), ("cluster_frac", [0.0])]
@@ -153,9 +190,7 @@ def main() -> None:
 
     bf_path = args.analysis_dir / "board_features.json"
     if not bf_path.is_file():
-        raise SystemExit(
-            f"Expected {bf_path}. Run scripts/board_features.py first."
-        )
+        raise SystemExit(f"Expected {bf_path}. Run scripts/board_features.py first.")
     boards = json.load(bf_path.open())
     if not boards:
         raise SystemExit("board_features.json is empty.")
@@ -199,9 +234,7 @@ def main() -> None:
     # ----- Bucket pool into strata -----
     strata: dict[tuple[str, ...], list[dict]] = defaultdict(list)
     for b in pool:
-        key = tuple(
-            f"{name}{tier_label(b[name], cuts)}" for name, cuts in stratify_specs
-        )
+        key = tuple(f"{name}{tier_label(b[name], cuts)}" for name, cuts in stratify_specs)
         strata[key].append(b)
 
     # ----- Per-stratum 80/10/10 with seeded shuffle -----
@@ -214,9 +247,9 @@ def main() -> None:
         n_train, n_val, n_test = largest_remainder(len(boards_in), ratios)
         for b in boards_in[:n_train]:
             assignment[b["board"]] = "train"
-        for b in boards_in[n_train:n_train + n_val]:
+        for b in boards_in[n_train : n_train + n_val]:
             assignment[b["board"]] = "val"
-        for b in boards_in[n_train + n_val:]:
+        for b in boards_in[n_train + n_val :]:
             assignment[b["board"]] = "test"
         stratum_alloc.append(("/".join(stratum_key), len(boards_in), (n_train, n_val, n_test)))
 
@@ -237,10 +270,7 @@ def main() -> None:
 
     # ----- Stdout summary -----
     print(f"make_splits: {len(boards)} boards")
-    print(
-        f"  seed={args.seed}  ratios={args.ratios}  "
-        f"min_frames_train={args.min_frames_train}"
-    )
+    print(f"  seed={args.seed}  ratios={args.ratios}  " f"min_frames_train={args.min_frames_train}")
     print("  stratify:")
     for name, cuts in stratify_specs:
         print(f"    {name}: cuts={cuts}")
@@ -271,7 +301,9 @@ def main() -> None:
         n_f = sum(frames_by_board[b["board"]] for b in members)
         n_a = sum(annots_by_board[b["board"]] for b in members)
         print(f"  {split:>5}: boards={n_b:>4}  frames={n_f:>5}  annots={n_a:>5}")
-    print(f"  total: boards={len(boards):>4}  frames={sum(frames_by_board.values()):>5}  annots={sum(annots_by_board.values()):>5}")
+    print(
+        f"  total: boards={len(boards):>4}  frames={sum(frames_by_board.values()):>5}  annots={sum(annots_by_board.values()):>5}"
+    )
 
     # ----- Balance audit -----
     skip = {"board", "height", "height_mixed"} | {name for name, _ in stratify_specs}
@@ -279,11 +311,14 @@ def main() -> None:
         audit_features = [x.strip() for x in args.audit_features.split(",") if x.strip()]
     else:
         audit_features = [
-            k for k, v in first.items()
+            k
+            for k, v in first.items()
             if k not in skip and isinstance(v, (int, float)) and not isinstance(v, bool)
         ]
     print()
-    print(f"Balance audit (mean per split vs population; *** flags |delta| > {args.audit_threshold * 100:.0f}%)")
+    print(
+        f"Balance audit (mean per split vs population; *** flags |delta| > {args.audit_threshold * 100:.0f}%)"
+    )
     aud_header = f"  {'feature':<22} {'pop':>9}  {'train':>15}  {'val':>15}  {'test':>15}"
     print(aud_header)
     print("  " + "-" * (len(aud_header) - 2))

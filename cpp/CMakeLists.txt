@@ -37,6 +37,7 @@ add_executable(knots
     src/gt_stitch.cpp
     src/stitching.cpp
     src/inference.cpp
+    src/eval.cpp
 )
 
 target_include_directories(knots PRIVATE

@@ -117,22 +117,28 @@ def render_raw(image: Image.Image, **_kwargs) -> Image.Image:
     return image.copy()
 
 
-def render_bbox(image: Image.Image, *,
-                bboxes: list[tuple[int, int, int, int]],
-                bbox_color: tuple[int, int, int],
-                **_kwargs) -> Image.Image:
+def render_bbox(
+    image: Image.Image,
+    *,
+    bboxes: list[tuple[int, int, int, int]],
+    bbox_color: tuple[int, int, int],
+    **_kwargs,
+) -> Image.Image:
     out = image.copy()
     draw = ImageDraw.Draw(out)
-    for (x1, y1, x2, y2) in bboxes:
+    for x1, y1, x2, y2 in bboxes:
         draw.rectangle([(x1, y1), (x2 - 1, y2 - 1)], outline=bbox_color, width=2)
     return out
 
 
-def render_polygon(image: Image.Image, *,
-                   polygons: list[list[tuple[int, int]]],
-                   polygon_color: tuple[int, int, int],
-                   polygon_alpha: float,
-                   **_kwargs) -> Image.Image:
+def render_polygon(
+    image: Image.Image,
+    *,
+    polygons: list[list[tuple[int, int]]],
+    polygon_color: tuple[int, int, int],
+    polygon_alpha: float,
+    **_kwargs,
+) -> Image.Image:
     if not polygons:
         return image.copy()
     base = image.convert("RGBA")
@@ -148,11 +154,14 @@ def render_polygon(image: Image.Image, *,
     return composed
 
 
-def render_predictions(image: Image.Image, *,
-                       predictions: list[list[tuple[int, int]]],
-                       prediction_color: tuple[int, int, int],
-                       prediction_alpha: float,
-                       **_kwargs) -> Image.Image:
+def render_predictions(
+    image: Image.Image,
+    *,
+    predictions: list[list[tuple[int, int]]],
+    prediction_color: tuple[int, int, int],
+    prediction_alpha: float,
+    **_kwargs,
+) -> Image.Image:
     # Same draw path as render_polygon but a separate function so the color /
     # alpha knobs and the source field are visibly distinct in stack traces
     # and in --help. Source is JSON instead of YOLO-seg .txt.
@@ -233,38 +242,73 @@ def load_frame_ids(args: argparse.Namespace) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data",
-                    help="Read-only input root containing images/.")
-    ap.add_argument("--bbox-labels-dir", type=Path, default=None,
-                    help="YOLO bbox labels dir (default: --data-dir/labels).")
-    ap.add_argument("--seg-labels-dir", type=Path, default=REPO_ROOT / "labels_seg",
-                    help="YOLO-seg polygon labels dir.")
-    ap.add_argument("--predictions-dir", type=Path, default=REPO_ROOT / "cpp_out",
-                    help="C++ inference JSON outputs (one .json per frame).")
-    ap.add_argument("--output-dir", type=Path, default=REPO_ROOT / "viz",
-                    help="Composites are written here.")
+    ap.add_argument(
+        "--data-dir",
+        type=Path,
+        default=REPO_ROOT / "data",
+        help="Read-only input root containing images/.",
+    )
+    ap.add_argument(
+        "--bbox-labels-dir",
+        type=Path,
+        default=None,
+        help="YOLO bbox labels dir (default: --data-dir/labels).",
+    )
+    ap.add_argument(
+        "--seg-labels-dir",
+        type=Path,
+        default=REPO_ROOT / "labels_seg",
+        help="YOLO-seg polygon labels dir.",
+    )
+    ap.add_argument(
+        "--predictions-dir",
+        type=Path,
+        default=REPO_ROOT / "cpp_out",
+        help="C++ inference JSON outputs (one .json per frame).",
+    )
+    ap.add_argument(
+        "--output-dir", type=Path, default=REPO_ROOT / "viz", help="Composites are written here."
+    )
 
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--frame", type=str, default=None, help="Single frame ID, e.g. 0_5.")
-    src.add_argument("--frames", type=str, default=None,
-                     help="Comma-separated frame IDs, e.g. 0_5,100_3.")
-    src.add_argument("--frames-file", type=Path, default=None,
-                     help="File with one frame ID per line; '#' comments allowed.")
+    src.add_argument(
+        "--frames", type=str, default=None, help="Comma-separated frame IDs, e.g. 0_5,100_3."
+    )
+    src.add_argument(
+        "--frames-file",
+        type=Path,
+        default=None,
+        help="File with one frame ID per line; '#' comments allowed.",
+    )
 
-    ap.add_argument("--panels", type=str, default="raw,bbox,polygon",
-                    help=f"Comma list of panel names in render order. "
-                         f"Available: {','.join(PANELS)}.")
+    ap.add_argument(
+        "--panels",
+        type=str,
+        default="raw,bbox,polygon",
+        help=f"Comma list of panel names in render order. " f"Available: {','.join(PANELS)}.",
+    )
     ap.add_argument("--stack", choices=("vertical", "horizontal"), default="vertical")
-    ap.add_argument("--label-panels", action=argparse.BooleanOptionalAction, default=True,
-                    help="Overlay a small text label per panel.")
+    ap.add_argument(
+        "--label-panels",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Overlay a small text label per panel.",
+    )
     ap.add_argument("--bbox-color", type=parse_hex_color, default=parse_hex_color("#ff3030"))
     ap.add_argument("--polygon-color", type=parse_hex_color, default=parse_hex_color("#ffff00"))
-    ap.add_argument("--polygon-alpha", type=float, default=0.35,
-                    help="Filled-polygon transparency in [0, 1].")
-    ap.add_argument("--prediction-color", type=parse_hex_color, default=parse_hex_color("#00e676"),
-                    help="Color for model-prediction polygons (distinct from GT yellow).")
+    ap.add_argument(
+        "--polygon-alpha", type=float, default=0.35, help="Filled-polygon transparency in [0, 1]."
+    )
+    ap.add_argument(
+        "--prediction-color",
+        type=parse_hex_color,
+        default=parse_hex_color("#00e676"),
+        help="Color for model-prediction polygons (distinct from GT yellow).",
+    )
     ap.add_argument("--prediction-alpha", type=float, default=0.35)
     args = ap.parse_args()
 
@@ -283,7 +327,9 @@ def main() -> None:
     if not frame_ids:
         raise SystemExit("no frame IDs collected.")
 
-    print(f"compare_frames: {len(frame_ids)} frame(s)  panels={','.join(panel_names)}  stack={args.stack}")
+    print(
+        f"compare_frames: {len(frame_ids)} frame(s)  panels={','.join(panel_names)}  stack={args.stack}"
+    )
     print(f"  output={rel_to_root(args.output_dir)}/")
 
     n_ok = 0
@@ -304,7 +350,9 @@ def main() -> None:
         for name in panel_names:
             panel = PANELS[name](
                 base,
-                bboxes=bboxes, polygons=polygons, predictions=predictions,
+                bboxes=bboxes,
+                polygons=polygons,
+                predictions=predictions,
                 bbox_color=args.bbox_color,
                 polygon_color=args.polygon_color,
                 polygon_alpha=args.polygon_alpha,

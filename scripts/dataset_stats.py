@@ -33,7 +33,7 @@ class BoardStats:
     first: int
     last: int
     frames: int  # number of present frame indices
-    gaps: int    # missing indices in [first, last]
+    gaps: int  # missing indices in [first, last]
     annots: int  # total annotation lines across all frames
 
     @property
@@ -116,8 +116,10 @@ def main() -> None:
 
     stats, image_count, label_count = collect(args.data_dir)
 
-    print(f"boards={len(stats)}  images={image_count}  labels={label_count}  "
-          f"annots={sum(s.annots for s in stats.values())}")
+    print(
+        f"boards={len(stats)}  images={image_count}  labels={label_count}  "
+        f"annots={sum(s.annots for s in stats.values())}"
+    )
     limit_str = "all" if args.limit <= 0 else str(args.limit)
     print(f"sorted by {args.sort} {args.order} (limit={limit_str})")
     print()
@@ -134,7 +136,9 @@ def main() -> None:
     print(header)
     print("-" * len(header))
     for s in rows:
-        print(f"{s.board:>6}  {s.frames:>6}  {s.gaps:>4}  {s.span:>4}  {s.first:>5}  {s.last:>4}  {s.annots:>6}")
+        print(
+            f"{s.board:>6}  {s.frames:>6}  {s.gaps:>4}  {s.span:>4}  {s.first:>5}  {s.last:>4}  {s.annots:>6}"
+        )
 
 
 if __name__ == "__main__":

@@ -14,16 +14,17 @@
 namespace {
 
 void PrintTopUsage(const char* prog) {
-    std::cerr <<
-        "usage: " << prog << " <subcommand> [options]\n"
-        "  infer       per-frame YOLO11-seg inference\n"
-        "  stitch      per-board raster-union of per-frame inference polygons\n"
-        "  gt-stitch   per-board raster-union of per-frame GT bboxes\n"
-        "Run `" << prog << " <subcommand> --help` for subcommand-specific options.\n";
+    std::cerr << "usage: " << prog
+              << " <subcommand> [options]\n"
+                 "  infer       per-frame YOLO11-seg inference\n"
+                 "  stitch      per-board raster-union of per-frame inference polygons\n"
+                 "  gt-stitch   per-board raster-union of per-frame GT bboxes\n"
+                 "  eval        test mode: compare per-board predictions to GT polygons\n"
+                 "Run `"
+              << prog << " <subcommand> --help` for subcommand-specific options.\n";
 }
 
 }  // namespace
-
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -31,9 +32,10 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::string cmd = argv[1];
-    if (cmd == "infer")     return knots::CmdInfer(argc - 1, argv + 1);
-    if (cmd == "stitch")    return knots::CmdStitch(argc - 1, argv + 1);
+    if (cmd == "infer") return knots::CmdInfer(argc - 1, argv + 1);
+    if (cmd == "stitch") return knots::CmdStitch(argc - 1, argv + 1);
     if (cmd == "gt-stitch") return knots::CmdGtStitch(argc - 1, argv + 1);
+    if (cmd == "eval") return knots::CmdEval(argc - 1, argv + 1);
     if (cmd == "-h" || cmd == "--help") {
         PrintTopUsage(argv[0]);
         return 0;

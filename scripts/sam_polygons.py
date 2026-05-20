@@ -49,7 +49,9 @@ def rel_to_root(path: Path) -> str:
         return str(path)
 
 
-def parse_yolo_bboxes(label_path: Path, w: int, h: int) -> tuple[list[tuple[int, int, int, int]], int]:
+def parse_yolo_bboxes(
+    label_path: Path, w: int, h: int
+) -> tuple[list[tuple[int, int, int, int]], int]:
     """Return (boxes, raw_line_count). Boxes are pixel-space (x1,y1,x2,y2),
     clipped to image and with any degenerate (zero w/h after rounding)
     entries silently dropped. The line-count delta lets the caller report
@@ -118,14 +120,15 @@ def bbox_to_polygon(bbox: tuple[int, int, int, int]) -> list[tuple[int, int]]:
     return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
 
 
-def run_sam_on_frame(model, image_bgr: np.ndarray,
-                     bboxes: list[tuple[int, int, int, int]]) -> list[np.ndarray]:
+def run_sam_on_frame(
+    model, image_bgr: np.ndarray, bboxes: list[tuple[int, int, int, int]]
+) -> list[np.ndarray]:
     """Return one boolean mask per bbox. Per-bbox calls keep the
     (bbox, point) prompt pairing unambiguous; the per-frame overhead is
     small compared to SAM inference itself."""
     masks: list[np.ndarray] = []
     h, w = image_bgr.shape[:2]
-    for (x1, y1, x2, y2) in bboxes:
+    for x1, y1, x2, y2 in bboxes:
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
         results = model.predict(
@@ -147,6 +150,7 @@ def run_sam_on_frame(model, image_bgr: np.ndarray,
 def load_sam(model_name: str, device: str):
     """Late import so --help works without ultralytics/CUDA installed."""
     from ultralytics import SAM
+
     print(f"loading SAM '{model_name}' on {device} ...", file=sys.stderr)
     model = SAM(model_name)
     model.to(device)
@@ -169,22 +173,37 @@ def list_frames(images_dir: Path, board_filter: set[int] | None) -> list[Path]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data",
-                    help="Read-only input dir containing images/ and labels/.")
-    ap.add_argument("--output-dir", type=Path, default=REPO_ROOT / "labels_seg",
-                    help="Output dir for YOLO-seg polygon labels.")
-    ap.add_argument("--model", default="sam2.1_s.pt",
-                    help="Ultralytics SAM checkpoint name or local path.")
-    ap.add_argument("--device", default="cuda:0",
-                    help="Torch device.")
-    ap.add_argument("--force", action="store_true",
-                    help="Re-run frames whose output label already exists.")
-    ap.add_argument("--boards", type=str, default="",
-                    help="Comma-separated board IDs to restrict to (default: all).")
-    ap.add_argument("--limit", type=int, default=0,
-                    help="Process at most N frames (0 = all). Smoke test knob.")
+    ap.add_argument(
+        "--data-dir",
+        type=Path,
+        default=REPO_ROOT / "data",
+        help="Read-only input dir containing images/ and labels/.",
+    )
+    ap.add_argument(
+        "--output-dir",
+        type=Path,
+        default=REPO_ROOT / "labels_seg",
+        help="Output dir for YOLO-seg polygon labels.",
+    )
+    ap.add_argument(
+        "--model", default="sam2.1_s.pt", help="Ultralytics SAM checkpoint name or local path."
+    )
+    ap.add_argument("--device", default="cuda:0", help="Torch device.")
+    ap.add_argument(
+        "--force", action="store_true", help="Re-run frames whose output label already exists."
+    )
+    ap.add_argument(
+        "--boards",
+        type=str,
+        default="",
+        help="Comma-separated board IDs to restrict to (default: all).",
+    )
+    ap.add_argument(
+        "--limit", type=int, default=0, help="Process at most N frames (0 = all). Smoke test knob."
+    )
     args = ap.parse_args()
 
     images_dir = args.data_dir / "images"
@@ -194,9 +213,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     board_filter = (
-        {int(x) for x in args.boards.split(",") if x.strip()}
-        if args.boards.strip()
-        else None
+        {int(x) for x in args.boards.split(",") if x.strip()} if args.boards.strip() else None
     )
 
     frames = list_frames(images_dir, board_filter)
@@ -204,7 +221,9 @@ def main() -> None:
         frames = frames[: args.limit]
 
     boards_str = "all" if board_filter is None else ",".join(str(b) for b in sorted(board_filter))
-    print(f"sam_polygons: {len(frames)} frames from {rel_to_root(images_dir)}/  -> {rel_to_root(args.output_dir)}/")
+    print(
+        f"sam_polygons: {len(frames)} frames from {rel_to_root(images_dir)}/  -> {rel_to_root(args.output_dir)}/"
+    )
     print(f"  model={args.model}  device={args.device}  force={args.force}  boards={boards_str}")
 
     model = load_sam(args.model, args.device)

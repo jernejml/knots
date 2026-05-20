@@ -36,6 +36,7 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import label as ndi_label
 
+
 def rel_to_root(path: Path) -> str:
     """Render path relative to the repo root for stdout; fall back to absolute."""
     try:
@@ -51,29 +52,72 @@ CONNECTIVITY_4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data",
-                   help="Read-only input dir containing images/ and labels/.")
-    p.add_argument("--output-dir", type=Path, default=REPO_ROOT / "analysis",
-                   help="Output dir for frames/annotations CSV+JSON.")
-    p.add_argument("--bg-max", type=int, default=30,
-                   help="Pixels with luminance <= this count as background.")
-    p.add_argument("--row-bright-frac", type=float, default=0.5,
-                   help="Row is 'wood' if >= this fraction of its pixels > bg-max.")
-    p.add_argument("--dark-wood-max", type=int, default=120,
-                   help="Upper luminance bound for a dark-wood pixel.")
-    p.add_argument("--min-chroma", type=int, default=15,
-                   help="Min max(RGB) - min(RGB) for a dark pixel to count as dark wood.")
-    p.add_argument("--bucket-thresholds", type=str, default="0.25,1,4",
-                   help="Three comma-separated %% cutoffs (tiny|small|medium|large).")
-    p.add_argument("--near-T-min-px", type=float, default=5.0,
-                   help="Floor (px) of the hybrid near-touching threshold.")
-    p.add_argument("--near-T-rel", type=float, default=0.25,
-                   help="Multiplier of min(min_dim_a, min_dim_b) for the hybrid threshold.")
-    p.add_argument("--edge-touch-tol-px", type=float, default=1.0,
-                   help="Box is touching an edge if its distance to that edge is <= this.")
-    p.add_argument("--limit", type=int, default=0,
-                   help="Process at most this many frames (0 = all). Useful for smoke tests.")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--data-dir",
+        type=Path,
+        default=REPO_ROOT / "data",
+        help="Read-only input dir containing images/ and labels/.",
+    )
+    p.add_argument(
+        "--output-dir",
+        type=Path,
+        default=REPO_ROOT / "analysis",
+        help="Output dir for frames/annotations CSV+JSON.",
+    )
+    p.add_argument(
+        "--bg-max", type=int, default=30, help="Pixels with luminance <= this count as background."
+    )
+    p.add_argument(
+        "--row-bright-frac",
+        type=float,
+        default=0.5,
+        help="Row is 'wood' if >= this fraction of its pixels > bg-max.",
+    )
+    p.add_argument(
+        "--dark-wood-max",
+        type=int,
+        default=120,
+        help="Upper luminance bound for a dark-wood pixel.",
+    )
+    p.add_argument(
+        "--min-chroma",
+        type=int,
+        default=15,
+        help="Min max(RGB) - min(RGB) for a dark pixel to count as dark wood.",
+    )
+    p.add_argument(
+        "--bucket-thresholds",
+        type=str,
+        default="0.25,1,4",
+        help="Three comma-separated %% cutoffs (tiny|small|medium|large).",
+    )
+    p.add_argument(
+        "--near-T-min-px",
+        type=float,
+        default=5.0,
+        help="Floor (px) of the hybrid near-touching threshold.",
+    )
+    p.add_argument(
+        "--near-T-rel",
+        type=float,
+        default=0.25,
+        help="Multiplier of min(min_dim_a, min_dim_b) for the hybrid threshold.",
+    )
+    p.add_argument(
+        "--edge-touch-tol-px",
+        type=float,
+        default=1.0,
+        help="Box is touching an edge if its distance to that edge is <= this.",
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Process at most this many frames (0 = all). Useful for smoke tests.",
+    )
     return p.parse_args()
 
 
@@ -116,10 +160,16 @@ def load_annotations(label_path: Path, width: int, height: int) -> list[dict]:
                 {
                     "annot_index": idx,
                     "class": cls,
-                    "cx": cx, "cy": cy, "w": w_n, "h": h_n,
-                    "x1": xc - bw / 2, "y1": yc - bh / 2,
-                    "x2": xc + bw / 2, "y2": yc + bh / 2,
-                    "w_px": bw, "h_px": bh,
+                    "cx": cx,
+                    "cy": cy,
+                    "w": w_n,
+                    "h": h_n,
+                    "x1": xc - bw / 2,
+                    "y1": yc - bh / 2,
+                    "x2": xc + bw / 2,
+                    "y2": yc + bh / 2,
+                    "w_px": bw,
+                    "h_px": bh,
                 }
             )
     return annots
@@ -147,9 +197,9 @@ def size_bucket(area_frac: float, thresholds: list[float]) -> str:
 
 def edge_features(a: dict, width: int, height: int, tol: float) -> dict:
     dists = {
-        "left":   a["x1"],
-        "right":  width - a["x2"],
-        "top":    a["y1"],
+        "left": a["x1"],
+        "right": width - a["x2"],
+        "top": a["y1"],
         "bottom": height - a["y2"],
     }
     nearest_edge, min_dist = min(dists.items(), key=lambda kv: kv[1])
@@ -161,15 +211,15 @@ def edge_features(a: dict, width: int, height: int, tol: float) -> dict:
         spans.append(a["x2"] - a["x1"])
     touch_span = max(spans) if spans else 0.0
     return {
-        "dist_left_px":   float(dists["left"]),
-        "dist_right_px":  float(dists["right"]),
-        "dist_top_px":    float(dists["top"]),
+        "dist_left_px": float(dists["left"]),
+        "dist_right_px": float(dists["right"]),
+        "dist_top_px": float(dists["top"]),
         "dist_bottom_px": float(dists["bottom"]),
         "min_edge_dist_px": float(min_dist),
         "nearest_edge": nearest_edge,
-        "touches_left_edge":   bool(touches["left"]),
-        "touches_right_edge":  bool(touches["right"]),
-        "touches_top_edge":    bool(touches["top"]),
+        "touches_left_edge": bool(touches["left"]),
+        "touches_right_edge": bool(touches["right"]),
+        "touches_top_edge": bool(touches["top"]),
         "touches_bottom_edge": bool(touches["bottom"]),
         "touch_span_px": float(touch_span),
     }
@@ -185,9 +235,12 @@ def cluster_metrics(annots: list[dict], near_T_min_px: float, near_T_rel: float)
     n = len(annots)
     if n == 0:
         return {
-            "touching_pairs": 0, "near_pairs": 0,
-            "cluster_count": 0, "largest_cluster_size": 0,
-            "singleton_count": 0, "cluster_sizes": [],
+            "touching_pairs": 0,
+            "near_pairs": 0,
+            "cluster_count": 0,
+            "largest_cluster_size": 0,
+            "singleton_count": 0,
+            "cluster_sizes": [],
         }
     parent = list(range(n))
 
@@ -245,9 +298,15 @@ def annotation_pixel_mask(annots: list[dict], width: int, height: int) -> np.nda
     return mask
 
 
-def contrast_stats(lab_l: np.ndarray, strip_top: int, strip_bot: int,
-                   annot_mask: np.ndarray, annots: list[dict],
-                   width: int, height: int) -> tuple[float | None, list[tuple[float | None, float | None]]]:
+def contrast_stats(
+    lab_l: np.ndarray,
+    strip_top: int,
+    strip_bot: int,
+    annot_mask: np.ndarray,
+    annots: list[dict],
+    width: int,
+    height: int,
+) -> tuple[float | None, list[tuple[float | None, float | None]]]:
     """LAB-L contrast between each knot and the surrounding (unannotated) wood.
 
     Returns (wood_l_mean, [(knot_l_mean, knot - wood) for each annotation]).
@@ -262,7 +321,7 @@ def contrast_stats(lab_l: np.ndarray, strip_top: int, strip_bot: int,
     if strip_top < 0 or strip_bot < strip_top:
         return None, [(None, None)] * n
     strip_mask = np.zeros_like(lab_l, dtype=bool)
-    strip_mask[strip_top:strip_bot + 1, :] = True
+    strip_mask[strip_top : strip_bot + 1, :] = True
     wood_mask = strip_mask & ~annot_mask
     if not wood_mask.any():
         return None, [(None, None)] * n
@@ -282,24 +341,29 @@ def contrast_stats(lab_l: np.ndarray, strip_top: int, strip_bot: int,
     return wood_l_mean, per_annot
 
 
-def dark_wood_stats(rgb: np.ndarray, lum: np.ndarray, strip_top: int, strip_bot: int,
-                    annot_mask: np.ndarray, args: argparse.Namespace) -> dict:
+def dark_wood_stats(
+    rgb: np.ndarray,
+    lum: np.ndarray,
+    strip_top: int,
+    strip_bot: int,
+    annot_mask: np.ndarray,
+    args: argparse.Namespace,
+) -> dict:
     height, width = lum.shape
     if strip_top < 0 or strip_bot < strip_top:
         return {
-            "dark_wood_px": 0, "dark_wood_frac": 0.0,
-            "dark_blob_count": 0, "largest_dark_blob_px": 0,
+            "dark_wood_px": 0,
+            "dark_wood_frac": 0.0,
+            "dark_blob_count": 0,
+            "largest_dark_blob_px": 0,
             "dark_blob_sizes": [],
         }
     strip_mask = np.zeros((height, width), dtype=bool)
-    strip_mask[strip_top:strip_bot + 1, :] = True
+    strip_mask[strip_top : strip_bot + 1, :] = True
     inspect = strip_mask & ~annot_mask
     chroma = rgb.max(axis=2).astype(np.int16) - rgb.min(axis=2).astype(np.int16)
     dark_mask = (
-        inspect
-        & (lum > args.bg_max)
-        & (lum <= args.dark_wood_max)
-        & (chroma >= args.min_chroma)
+        inspect & (lum > args.bg_max) & (lum <= args.dark_wood_max) & (chroma >= args.min_chroma)
     )
     dark_px = int(dark_mask.sum())
     denom = int(inspect.sum())
@@ -320,12 +384,16 @@ def dark_wood_stats(rgb: np.ndarray, lum: np.ndarray, strip_top: int, strip_bot:
     }
 
 
-def build_annotation_rows(board: int, frame: int, annots: list[dict],
-                          width: int, height: int,
-                          bucket_thresholds: list[float],
-                          edge_tol: float,
-                          per_annot_contrast: list[tuple[float | None, float | None]]
-                          ) -> tuple[list[dict], int]:
+def build_annotation_rows(
+    board: int,
+    frame: int,
+    annots: list[dict],
+    width: int,
+    height: int,
+    bucket_thresholds: list[float],
+    edge_tol: float,
+    per_annot_contrast: list[tuple[float | None, float | None]],
+) -> tuple[list[dict], int]:
     rows: list[dict] = []
     edge_touching = 0
     frame_area = float(width * height)
@@ -339,12 +407,20 @@ def build_annotation_rows(board: int, frame: int, annots: list[dict],
             edge_touching += 1
         rows.append(
             {
-                "board": board, "frame": frame,
-                "annot_index": a["annot_index"], "class": a["class"],
-                "cx": a["cx"], "cy": a["cy"], "w": a["w"], "h": a["h"],
-                "w_px": float(a["w_px"]), "h_px": float(a["h_px"]),
-                "area_px": float(area_px), "area_frac": float(area_frac),
-                "aspect_ratio": float(aspect), "size_bucket": bucket,
+                "board": board,
+                "frame": frame,
+                "annot_index": a["annot_index"],
+                "class": a["class"],
+                "cx": a["cx"],
+                "cy": a["cy"],
+                "w": a["w"],
+                "h": a["h"],
+                "w_px": float(a["w_px"]),
+                "h_px": float(a["h_px"]),
+                "area_px": float(area_px),
+                "area_frac": float(area_frac),
+                "aspect_ratio": float(aspect),
+                "size_bucket": bucket,
                 "knot_l_mean": knot_l,
                 "knot_wood_contrast": contrast,
                 **edge,
@@ -447,11 +523,23 @@ def main() -> None:
 
         dark = dark_wood_stats(rgb, lum, strip_top, strip_bot, annot_mask, args)
         wood_l_mean, per_annot_contrast = contrast_stats(
-            lab_l, strip_top, strip_bot, annot_mask, annots, width, height,
+            lab_l,
+            strip_top,
+            strip_bot,
+            annot_mask,
+            annots,
+            width,
+            height,
         )
         clust = cluster_metrics(annots, args.near_T_min_px, args.near_T_rel)
         ann_rows, edge_touching_count = build_annotation_rows(
-            board, frame, annots, width, height, bucket_thresholds, args.edge_touch_tol_px,
+            board,
+            frame,
+            annots,
+            width,
+            height,
+            bucket_thresholds,
+            args.edge_touch_tol_px,
             per_annot_contrast,
         )
         annots_out.extend(ann_rows)
@@ -461,12 +549,14 @@ def main() -> None:
 
         frames_out.append(
             {
-                "board": board, "frame": frame,
-                "width": width, "height": height,
-                "top_band_px":     top_band if strip_detected else -1,
-                "bottom_band_px":  bot_band if strip_detected else -1,
-                "top_band_frac":   (top_band / height) if strip_detected and height > 0 else -1.0,
-                "bottom_band_frac":(bot_band / height) if strip_detected and height > 0 else -1.0,
+                "board": board,
+                "frame": frame,
+                "width": width,
+                "height": height,
+                "top_band_px": top_band if strip_detected else -1,
+                "bottom_band_px": bot_band if strip_detected else -1,
+                "top_band_frac": (top_band / height) if strip_detected and height > 0 else -1.0,
+                "bottom_band_frac": (bot_band / height) if strip_detected and height > 0 else -1.0,
                 "strip_height_px": strip_height,
                 "annot_count": len(annots),
                 **dark,

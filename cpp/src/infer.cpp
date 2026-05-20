@@ -15,13 +15,15 @@
 // Runs are resumable: frames whose JSON already exists are skipped unless
 // --force is passed.
 
-#include "knots/commands.hpp"
+#include <onnxruntime_cxx_api.h>
 
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -29,10 +31,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-#include <onnxruntime_cxx_api.h>
-#include <opencv2/imgcodecs.hpp>
-
+#include "knots/commands.hpp"
 #include "knots/inference.hpp"
 
 namespace fs = std::filesystem;
@@ -55,15 +54,14 @@ struct Args {
 };
 
 void PrintUsage() {
-    std::cerr <<
-        "usage: knots infer --model M --input-dir IN --output-dir OUT [opts]\n"
-        "  --frames LIST            comma-separated frame stems, e.g. 0_5,100_3\n"
-        "  --frames-file FILE       one frame stem per line\n"
-        "  --splits-csv PATH        analysis/splits.csv\n"
-        "  --split {train,val,test} with --splits-csv: restrict to this split\n"
-        "  --conf C                 confidence threshold (default 0.25)\n"
-        "  --cpu                    force CPU execution provider\n"
-        "  --force                  overwrite existing outputs\n";
+    std::cerr << "usage: knots infer --model M --input-dir IN --output-dir OUT [opts]\n"
+                 "  --frames LIST            comma-separated frame stems, e.g. 0_5,100_3\n"
+                 "  --frames-file FILE       one frame stem per line\n"
+                 "  --splits-csv PATH        analysis/splits.csv\n"
+                 "  --split {train,val,test} with --splits-csv: restrict to this split\n"
+                 "  --conf C                 confidence threshold (default 0.25)\n"
+                 "  --cpu                    force CPU execution provider\n"
+                 "  --force                  overwrite existing outputs\n";
 }
 
 bool RequireNext(const std::string& flag, int i, int argc) {
@@ -78,18 +76,29 @@ bool ParseArgs(int argc, char** argv, Args& out) {
     int i = 1;  // skip subcommand name
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--model" && RequireNext(a, i, argc))            { out.model = argv[++i]; }
-        else if (a == "--input-dir" && RequireNext(a, i, argc))   { out.input_dir = argv[++i]; }
-        else if (a == "--output-dir" && RequireNext(a, i, argc))  { out.output_dir = argv[++i]; }
-        else if (a == "--frames" && RequireNext(a, i, argc))      { out.frames_csv = argv[++i]; }
-        else if (a == "--frames-file" && RequireNext(a, i, argc)) { out.frames_file = argv[++i]; }
-        else if (a == "--splits-csv" && RequireNext(a, i, argc))  { out.splits_csv = argv[++i]; }
-        else if (a == "--split" && RequireNext(a, i, argc))       { out.split = argv[++i]; }
-        else if (a == "--conf" && RequireNext(a, i, argc))        { out.conf = std::stof(argv[++i]); }
-        else if (a == "--cpu")                                    { out.prefer_cuda = false; }
-        else if (a == "--force")                                  { out.force = true; }
-        else if (a == "--help" || a == "-h")                      { return false; }
-        else {
+        if (a == "--model" && RequireNext(a, i, argc)) {
+            out.model = argv[++i];
+        } else if (a == "--input-dir" && RequireNext(a, i, argc)) {
+            out.input_dir = argv[++i];
+        } else if (a == "--output-dir" && RequireNext(a, i, argc)) {
+            out.output_dir = argv[++i];
+        } else if (a == "--frames" && RequireNext(a, i, argc)) {
+            out.frames_csv = argv[++i];
+        } else if (a == "--frames-file" && RequireNext(a, i, argc)) {
+            out.frames_file = argv[++i];
+        } else if (a == "--splits-csv" && RequireNext(a, i, argc)) {
+            out.splits_csv = argv[++i];
+        } else if (a == "--split" && RequireNext(a, i, argc)) {
+            out.split = argv[++i];
+        } else if (a == "--conf" && RequireNext(a, i, argc)) {
+            out.conf = std::stof(argv[++i]);
+        } else if (a == "--cpu") {
+            out.prefer_cuda = false;
+        } else if (a == "--force") {
+            out.force = true;
+        } else if (a == "--help" || a == "-h") {
+            return false;
+        } else {
             std::cerr << "unrecognised arg: " << a << "\n";
             return false;
         }
@@ -146,7 +155,8 @@ std::unordered_set<int> LoadBoardsInSplit(const fs::path& csv, const std::string
         if (cols[split_col] != want) continue;
         try {
             boards.insert(std::stoi(cols[board_col]));
-        } catch (...) { /* skip malformed */ }
+        } catch (...) { /* skip malformed */
+        }
     }
     return boards;
 }
@@ -157,7 +167,11 @@ const std::regex kFrameFileRe(R"(^(\d+)_(\d+)\.png$)");
 int BoardFromStem(const std::string& stem) {
     std::smatch m;
     if (!std::regex_match(stem, m, kFrameStemRe)) return -1;
-    try { return std::stoi(m[1]); } catch (...) { return -1; }
+    try {
+        return std::stoi(m[1]);
+    } catch (...) {
+        return -1;
+    }
 }
 
 std::vector<std::string> CollectFrameStems(const Args& args) {
@@ -193,8 +207,8 @@ std::vector<std::string> CollectFrameStems(const Args& args) {
     if (!args.splits_csv.empty()) {
         boards_filter = LoadBoardsInSplit(args.splits_csv, args.split);
         if (boards_filter.empty()) {
-            std::cerr << "warning: no boards match split " << args.split
-                      << " in " << args.splits_csv << "\n";
+            std::cerr << "warning: no boards match split " << args.split << " in "
+                      << args.splits_csv << "\n";
         }
     }
     std::set<std::string> dedup;
@@ -224,12 +238,8 @@ std::vector<std::string> CollectFrameStems(const Args& args) {
     return {dedup.begin(), dedup.end()};
 }
 
-void WriteJson(const fs::path& out_path,
-               const std::string& frame_id,
-               const cv::Mat& image,
-               const std::string& ep,
-               float conf,
-               const std::vector<Detection>& dets) {
+void WriteJson(const fs::path& out_path, const std::string& frame_id, const cv::Mat& image,
+               const std::string& ep, float conf, const std::vector<Detection>& dets) {
     nlohmann::json j;
     j["frame"] = frame_id;
     j["image_size"] = {image.cols, image.rows};
@@ -238,8 +248,7 @@ void WriteJson(const fs::path& out_path,
     j["detections"] = nlohmann::json::array();
     for (const auto& d : dets) {
         nlohmann::json jd;
-        jd["bbox"] = {d.bbox.x, d.bbox.y,
-                      d.bbox.x + d.bbox.width, d.bbox.y + d.bbox.height};
+        jd["bbox"] = {d.bbox.x, d.bbox.y, d.bbox.x + d.bbox.width, d.bbox.y + d.bbox.height};
         jd["confidence"] = d.confidence;
         jd["class"] = d.cls;
         nlohmann::json poly = nlohmann::json::array();
@@ -254,7 +263,6 @@ void WriteJson(const fs::path& out_path,
 }
 
 }  // namespace
-
 
 int CmdInfer(int argc, char** argv) {
     Args args;
@@ -284,8 +292,8 @@ int CmdInfer(int argc, char** argv) {
         Ort::Session session = MakeSession(env, args.model, args.prefer_cuda, ep);
 
         std::cerr << "knots infer: " << stems.size() << " frame(s)  ep=" << ep
-                  << "  conf=" << args.conf
-                  << "  force=" << (args.force ? "true" : "false") << "\n";
+                  << "  conf=" << args.conf << "  force=" << (args.force ? "true" : "false")
+                  << "\n";
 
         const size_t heartbeat = std::max<size_t>(20, stems.size() / 20);
         size_t processed = 0, skipped = 0, errors = 0, total_dets = 0;
@@ -320,9 +328,8 @@ int CmdInfer(int argc, char** argv) {
         }
 
         std::cerr << "\nResult\n"
-                  << "  processed=" << processed
-                  << "  skipped=" << skipped
-                  << "  errors=" << errors << "\n"
+                  << "  processed=" << processed << "  skipped=" << skipped << "  errors=" << errors
+                  << "\n"
                   << "  detections=" << total_dets << " across " << processed << " frame(s)\n"
                   << "  output dir: " << args.output_dir << "\n";
 

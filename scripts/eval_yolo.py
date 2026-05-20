@@ -28,29 +28,40 @@ def rel_to_root(path: Path) -> str:
 def latest_best_weights(runs_dir: Path) -> Path:
     candidates = list(runs_dir.glob("*/weights/best.pt"))
     if not candidates:
-        raise FileNotFoundError(
-            f"no best.pt under {runs_dir}/. Train first or pass --weights."
-        )
+        raise FileNotFoundError(f"no best.pt under {runs_dir}/. Train first or pass --weights.")
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--weights", type=Path, default=None,
-                    help="Path to best.pt; default = most recent under --runs-dir.")
-    ap.add_argument("--runs-dir", type=Path, default=REPO_ROOT / "runs" / "segment",
-                    help="Where to look for runs (auto-pick latest best.pt).")
-    ap.add_argument("--data", type=Path,
-                    default=REPO_ROOT / "yolo_dataset" / "dataset.yaml",
-                    help="dataset.yaml from train_yolo.py staging.")
+    ap.add_argument(
+        "--weights",
+        type=Path,
+        default=None,
+        help="Path to best.pt; default = most recent under --runs-dir.",
+    )
+    ap.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=REPO_ROOT / "runs" / "segment",
+        help="Where to look for runs (auto-pick latest best.pt).",
+    )
+    ap.add_argument(
+        "--data",
+        type=Path,
+        default=REPO_ROOT / "yolo_dataset" / "dataset.yaml",
+        help="dataset.yaml from train_yolo.py staging.",
+    )
     ap.add_argument("--split", default="test", choices=("train", "val", "test"))
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--device", default="0")
-    ap.add_argument("--name", default=None,
-                    help="Output subdir name; default = ultralytics auto-naming.")
+    ap.add_argument(
+        "--name", default=None, help="Output subdir name; default = ultralytics auto-naming."
+    )
     args = ap.parse_args()
 
     weights = args.weights or latest_best_weights(args.runs_dir)

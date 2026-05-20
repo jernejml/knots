@@ -13,21 +13,20 @@
 //   --boards LIST | --boards-file FILE
 //   --splits-csv PATH + --split {train,val,test}
 
-#include "knots/commands.hpp"
-#include "knots/stitching.hpp"
-
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <opencv2/imgcodecs.hpp>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-#include <opencv2/imgcodecs.hpp>
+#include "knots/commands.hpp"
+#include "knots/stitching.hpp"
 
 namespace fs = std::filesystem;
 
@@ -49,18 +48,17 @@ struct GtStitchArgs {
 };
 
 void PrintUsage() {
-    std::cerr <<
-        "usage: knots gt-stitch --labels-dir L --images-dir I --output-dir O [opts]\n"
-        "  --labels-dir DIR         YOLO bbox labels (per-frame .txt)\n"
-        "  --images-dir DIR         frame PNGs (for frame dimensions)\n"
-        "  --output-dir DIR         per-board GT JSONs\n"
-        "  --stride-px N            frame stride (default 320)\n"
-        "  --simplify-eps F         approxPolyDP eps in board px (default 1.0)\n"
-        "  --boards LIST            comma-separated board IDs to restrict to\n"
-        "  --boards-file FILE       one board ID per line ('#' comments allowed)\n"
-        "  --splits-csv PATH        analysis/splits.csv\n"
-        "  --split {train,val,test} with --splits-csv: pick boards in this split\n"
-        "  --force                  overwrite existing outputs\n";
+    std::cerr << "usage: knots gt-stitch --labels-dir L --images-dir I --output-dir O [opts]\n"
+                 "  --labels-dir DIR         YOLO bbox labels (per-frame .txt)\n"
+                 "  --images-dir DIR         frame PNGs (for frame dimensions)\n"
+                 "  --output-dir DIR         per-board GT JSONs\n"
+                 "  --stride-px N            frame stride (default 320)\n"
+                 "  --simplify-eps F         approxPolyDP eps in board px (default 1.0)\n"
+                 "  --boards LIST            comma-separated board IDs to restrict to\n"
+                 "  --boards-file FILE       one board ID per line ('#' comments allowed)\n"
+                 "  --splits-csv PATH        analysis/splits.csv\n"
+                 "  --split {train,val,test} with --splits-csv: pick boards in this split\n"
+                 "  --force                  overwrite existing outputs\n";
 }
 
 bool RequireNext(const std::string& flag, int i, int argc) {
@@ -75,18 +73,29 @@ bool ParseArgs(int argc, char** argv, GtStitchArgs& out) {
     int i = 1;
     while (i < argc) {
         std::string a = argv[i];
-        if (a == "--labels-dir" && RequireNext(a, i, argc))      { out.labels_dir = argv[++i]; }
-        else if (a == "--images-dir" && RequireNext(a, i, argc)) { out.images_dir = argv[++i]; }
-        else if (a == "--output-dir" && RequireNext(a, i, argc)) { out.output_dir = argv[++i]; }
-        else if (a == "--stride-px" && RequireNext(a, i, argc))  { out.stride_px = std::stoi(argv[++i]); }
-        else if (a == "--simplify-eps" && RequireNext(a, i, argc)) { out.simplify_eps_px = std::stof(argv[++i]); }
-        else if (a == "--boards" && RequireNext(a, i, argc))     { out.boards_csv = argv[++i]; }
-        else if (a == "--boards-file" && RequireNext(a, i, argc)){ out.boards_file = argv[++i]; }
-        else if (a == "--splits-csv" && RequireNext(a, i, argc)) { out.splits_csv = argv[++i]; }
-        else if (a == "--split" && RequireNext(a, i, argc))      { out.split = argv[++i]; }
-        else if (a == "--force")                                 { out.force = true; }
-        else if (a == "--help" || a == "-h")                     { return false; }
-        else {
+        if (a == "--labels-dir" && RequireNext(a, i, argc)) {
+            out.labels_dir = argv[++i];
+        } else if (a == "--images-dir" && RequireNext(a, i, argc)) {
+            out.images_dir = argv[++i];
+        } else if (a == "--output-dir" && RequireNext(a, i, argc)) {
+            out.output_dir = argv[++i];
+        } else if (a == "--stride-px" && RequireNext(a, i, argc)) {
+            out.stride_px = std::stoi(argv[++i]);
+        } else if (a == "--simplify-eps" && RequireNext(a, i, argc)) {
+            out.simplify_eps_px = std::stof(argv[++i]);
+        } else if (a == "--boards" && RequireNext(a, i, argc)) {
+            out.boards_csv = argv[++i];
+        } else if (a == "--boards-file" && RequireNext(a, i, argc)) {
+            out.boards_file = argv[++i];
+        } else if (a == "--splits-csv" && RequireNext(a, i, argc)) {
+            out.splits_csv = argv[++i];
+        } else if (a == "--split" && RequireNext(a, i, argc)) {
+            out.split = argv[++i];
+        } else if (a == "--force") {
+            out.force = true;
+        } else if (a == "--help" || a == "-h") {
+            return false;
+        } else {
             std::cerr << "unrecognised arg: " << a << "\n";
             return false;
         }
@@ -111,9 +120,13 @@ std::vector<std::string> SplitCsvLine(const std::string& line) {
     std::string cur;
     bool in_quotes = false;
     for (char c : line) {
-        if (c == '"') in_quotes = !in_quotes;
-        else if (c == ',' && !in_quotes) { fields.push_back(cur); cur.clear(); }
-        else cur += c;
+        if (c == '"')
+            in_quotes = !in_quotes;
+        else if (c == ',' && !in_quotes) {
+            fields.push_back(cur);
+            cur.clear();
+        } else
+            cur += c;
     }
     fields.push_back(cur);
     return fields;
@@ -139,7 +152,10 @@ std::unordered_set<int> LoadBoardsInSplit(const fs::path& csv, const std::string
         auto cols = SplitCsvLine(line);
         if (static_cast<int>(cols.size()) <= std::max(board_col, split_col)) continue;
         if (cols[split_col] != want) continue;
-        try { boards.insert(std::stoi(cols[board_col])); } catch (...) {}
+        try {
+            boards.insert(std::stoi(cols[board_col]));
+        } catch (...) {
+        }
     }
     return boards;
 }
@@ -148,8 +164,8 @@ const std::regex kLabelFileRe(R"(^(\d+)_(\d+)\.txt$)");
 
 // Parse YOLO bbox labels for one frame; emit each box as a 4-vertex
 // rectangle polygon in frame-local pixel coords, clipped to image bounds.
-std::vector<std::vector<cv::Point>> ParseYoloBboxesAsPolys(
-    const fs::path& label_path, int w, int h) {
+std::vector<std::vector<cv::Point>> ParseYoloBboxesAsPolys(const fs::path& label_path, int w,
+                                                           int h) {
     std::vector<std::vector<cv::Point>> polys;
     std::ifstream f(label_path);
     if (!f) return polys;
@@ -176,7 +192,10 @@ std::unordered_set<int> ParseBoardsCsv(const std::string& s) {
     std::stringstream ss(s);
     std::string tok;
     while (std::getline(ss, tok, ',')) {
-        try { out.insert(std::stoi(tok)); } catch (...) {}
+        try {
+            out.insert(std::stoi(tok));
+        } catch (...) {
+        }
     }
     return out;
 }
@@ -190,13 +209,15 @@ std::unordered_set<int> ParseBoardsFile(const fs::path& p) {
         auto a = line.find_first_not_of(" \t");
         if (a == std::string::npos) continue;
         if (line[a] == '#') continue;
-        try { out.insert(std::stoi(line.substr(a))); } catch (...) {}
+        try {
+            out.insert(std::stoi(line.substr(a)));
+        } catch (...) {
+        }
     }
     return out;
 }
 
 }  // namespace
-
 
 int CmdGtStitch(int argc, char** argv) {
     GtStitchArgs args;
@@ -217,9 +238,10 @@ int CmdGtStitch(int argc, char** argv) {
     try {
         // Resolve which boards we want.
         std::unordered_set<int> boards_filter;
-        if (!args.boards_csv.empty())   boards_filter = ParseBoardsCsv(args.boards_csv);
-        if (!args.boards_file.empty())  boards_filter = ParseBoardsFile(args.boards_file);
-        if (!args.splits_csv.empty())   boards_filter = LoadBoardsInSplit(args.splits_csv, args.split);
+        if (!args.boards_csv.empty()) boards_filter = ParseBoardsCsv(args.boards_csv);
+        if (!args.boards_file.empty()) boards_filter = ParseBoardsFile(args.boards_file);
+        if (!args.splits_csv.empty())
+            boards_filter = LoadBoardsInSplit(args.splits_csv, args.split);
 
         // Walk labels dir; group label files by board.
         std::map<int, std::vector<int>> board_frames;
@@ -235,8 +257,8 @@ int CmdGtStitch(int argc, char** argv) {
         }
 
         std::cerr << "knots gt-stitch: " << board_frames.size() << " board(s)"
-                  << "  stride=" << args.stride_px
-                  << "  force=" << (args.force ? "true" : "false") << "\n";
+                  << "  stride=" << args.stride_px << "  force=" << (args.force ? "true" : "false")
+                  << "\n";
 
         size_t n_boards_out = 0, n_skipped = 0, total_polys = 0;
         for (auto& [board, frames] : board_frames) {
@@ -260,21 +282,19 @@ int CmdGtStitch(int argc, char** argv) {
                 fp.frame_idx = frame_idx;
                 fp.width = img.cols;
                 fp.height = img.rows;
-                fp.polygons = ParseYoloBboxesAsPolys(
-                    args.labels_dir / (stem + ".txt"), img.cols, img.rows);
+                fp.polygons =
+                    ParseYoloBboxesAsPolys(args.labels_dir / (stem + ".txt"), img.cols, img.rows);
                 fp_list.push_back(std::move(fp));
             }
             if (fp_list.empty()) continue;
 
-            total_polys += StitchBoardToJson(board, std::move(fp_list),
-                                             args.stride_px, args.simplify_eps_px,
-                                             out_path);
+            total_polys += StitchBoardToJson(board, std::move(fp_list), args.stride_px,
+                                             args.simplify_eps_px, out_path);
             ++n_boards_out;
         }
 
         std::cerr << "\nResult\n"
-                  << "  boards processed=" << n_boards_out
-                  << "  skipped=" << n_skipped << "\n"
+                  << "  boards processed=" << n_boards_out << "  skipped=" << n_skipped << "\n"
                   << "  total per-board GT polygons=" << total_polys << "\n"
                   << "  output dir: " << args.output_dir << "\n";
     } catch (const std::exception& e) {

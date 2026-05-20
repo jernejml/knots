@@ -124,38 +124,63 @@ def build_staging(args: argparse.Namespace) -> Path:
         print(f"  WARN: {n_no_label} frame(s) missing in {rel_to_root(seg_dir)}/ — skipped")
     if n_no_split:
         print(f"  WARN: {n_no_split} frame(s) whose board is not in splits.csv — skipped")
-    print(f"  train={len(by_split['train'])}  val={len(by_split['val'])}  test={len(by_split['test'])}")
+    print(
+        f"  train={len(by_split['train'])}  val={len(by_split['val'])}  test={len(by_split['test'])}"
+    )
     return yaml_path
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data",
-                    help="Read-only input root containing images/.")
-    ap.add_argument("--seg-labels-dir", type=Path, default=REPO_ROOT / "labels_seg_l",
-                    help="SAM polygon labels (YOLO-seg format).")
-    ap.add_argument("--splits-csv", type=Path, default=REPO_ROOT / "analysis" / "splits.csv",
-                    help="Board-level split assignment from make_splits.py.")
-    ap.add_argument("--staging-dir", type=Path, default=REPO_ROOT / "yolo_dataset",
-                    help="Where the YOLO scaffold (symlinks + dataset.yaml) lives.")
-    ap.add_argument("--model", default="yolo11m-seg.pt",
-                    help="Starting checkpoint or model variant.")
+    ap.add_argument(
+        "--data-dir",
+        type=Path,
+        default=REPO_ROOT / "data",
+        help="Read-only input root containing images/.",
+    )
+    ap.add_argument(
+        "--seg-labels-dir",
+        type=Path,
+        default=REPO_ROOT / "labels_seg_l",
+        help="SAM polygon labels (YOLO-seg format).",
+    )
+    ap.add_argument(
+        "--splits-csv",
+        type=Path,
+        default=REPO_ROOT / "analysis" / "splits.csv",
+        help="Board-level split assignment from make_splits.py.",
+    )
+    ap.add_argument(
+        "--staging-dir",
+        type=Path,
+        default=REPO_ROOT / "yolo_dataset",
+        help="Where the YOLO scaffold (symlinks + dataset.yaml) lives.",
+    )
+    ap.add_argument(
+        "--model", default="yolo11m-seg.pt", help="Starting checkpoint or model variant."
+    )
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--patience", type=int, default=20)
-    ap.add_argument("--name", default="train",
-                    help="Run name (suffix in runs/segment/).")
-    ap.add_argument("--project", type=Path, default=None,
-                    help="Output project dir; default = ultralytics' runs/segment/.")
+    ap.add_argument("--name", default="train", help="Run name (suffix in runs/segment/).")
+    ap.add_argument(
+        "--project",
+        type=Path,
+        default=None,
+        help="Output project dir; default = ultralytics' runs/segment/.",
+    )
     ap.add_argument("--device", default="0")
     ap.add_argument("--workers", type=int, default=8)
-    ap.add_argument("--resume", action="store_true",
-                    help="Resume the last checkpoint of this run name.")
-    ap.add_argument("--setup-only", action="store_true",
-                    help="Build the staging dir and exit (no training).")
+    ap.add_argument(
+        "--resume", action="store_true", help="Resume the last checkpoint of this run name."
+    )
+    ap.add_argument(
+        "--setup-only", action="store_true", help="Build the staging dir and exit (no training)."
+    )
     args = ap.parse_args()
 
     yaml_path = build_staging(args)
