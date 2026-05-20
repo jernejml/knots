@@ -1,0 +1,19 @@
+# clang-format config for cpp/.
+#
+# Base: Google style — matches the existing repo (snake_case files,
+# CamelCase functions, attached braces, sorted includes). Indent width
+# bumped to 4 spaces because that's what the existing code uses, and
+# column limit relaxed to 100 to avoid reflowing comment blocks and
+# argument lists into ladders.
+#
+# Run from the repo root (config lives in formatting/, so pass it
+# explicitly — clang-format doesn't search sibling directories):
+#   clang-format --style=file:formatting/.clang-format -i \
+#       cpp/src/*.cpp cpp/include/knots/*.hpp
+
+---
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 100
+DerivePointerAlignment: false
+PointerAlignment: Left

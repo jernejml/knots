@@ -1,0 +1,18 @@
+# Ruff config — format only, no linting.
+#
+# We only use `ruff format` to keep scripts/ consistent. Lint rules
+# (E/F/I/etc.) are intentionally not enabled here: the goal is style
+# parity, not a style-guide enforcer mid-task. Add rules later if and
+# when they pay off.
+#
+# Run from the repo root (config lives in formatting/, so pass it
+# explicitly — ruff only auto-discovers configs at CWD or above):
+#   ruff format --config formatting/ruff.toml scripts/
+
+line-length = 100
+target-version = "py313"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
