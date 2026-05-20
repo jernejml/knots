@@ -1,127 +1,136 @@
-// knots — C++ inference pipeline for wood-knot polygon extraction.
+// knots — C++ inference for wood-knot polygon extraction.
 //
-// Step 1 (smoke test): load a YOLOv11-seg ONNX model and print its session
-// metadata: available execution providers and the names/shapes/types of
-// every input and output tensor. This validates that ONNX Runtime is wired
-// up correctly and that the exported model matches the shapes we expect
-// before we start writing the inference + postprocessing logic.
+// Step 2: load a YOLOv11-seg ONNX model and run it on one frame. Decodes the
+// post-NMS output (4 bbox + 1 conf + 1 cls + 32 mask coefs) and the mask
+// prototypes (32×160×160) into per-detection polygons in source-image
+// coordinates, then writes a JSON blob to stdout or to a file.
 //
-// Expected output for an ultralytics-exported YOLO11-seg model with
-// `nms=True`, fixed imgsz=640:
-//   inputs (1):   images   shape=[1, 3, 640, 640]   type=float32
-//   outputs (2):  output0  shape=[1, N_keep, 38]    type=float32
-//                 output1  shape=[1, 32, 160, 160]  type=float32
+// Usage:
+//   knots <model.onnx> <frame.png> [out.json] [--conf C] [--cpu]
+//
+// Cross-frame dedup and per-board aggregation come later — this step
+// produces the per-frame predictions that those stages will consume.
 
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
-#include <vector>
-#include <filesystem>
 
+#include <nlohmann/json.hpp>
 #include <onnxruntime_cxx_api.h>
+#include <opencv2/imgcodecs.hpp>
+
+#include "knots/inference.hpp"
 
 namespace fs = std::filesystem;
 
 namespace {
 
-std::string ShapeToString(const std::vector<int64_t>& shape) {
-    std::string out = "[";
-    for (size_t i = 0; i < shape.size(); ++i) {
-        if (i) out += ", ";
-        out += std::to_string(shape[i]);
-    }
-    out += "]";
-    return out;
+struct Args {
+    fs::path model;
+    fs::path image;
+    fs::path output;        // empty -> stdout
+    float conf = 0.25f;
+    bool prefer_cuda = true;
+};
+
+void PrintUsage(const char* prog) {
+    std::cerr
+        << "usage: " << prog << " <model.onnx> <frame.png> [out.json] [opts]\n"
+        << "  --conf C     confidence threshold (default 0.25)\n"
+        << "  --cpu        force CPU execution provider\n";
 }
 
-// Map ONNX element-type enum to a short, human-readable string. Only the
-// types we actually expect to encounter are listed; everything else falls
-// through to "other(<int>)" so unexpected models are visibly different
-// rather than silently OK.
-std::string TypeName(ONNXTensorElementDataType t) {
-    switch (t) {
-        case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:   return "float32";
-        case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16: return "float16";
-        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:   return "int64";
-        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:   return "int32";
-        case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:   return "uint8";
-        default:
-            return "other(" + std::to_string(static_cast<int>(t)) + ")";
-    }
-}
+bool ParseArgs(int argc, char** argv, Args& out) {
+    if (argc < 3) return false;
+    out.model = argv[1];
+    out.image = argv[2];
 
-// Note: takes Ort::TypeInfo by const-ref. Pulling the shape-info as a free
-// expression (`session.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo()`)
-// is a use-after-free — the shape-info is a non-owning view into the
-// TypeInfo, which is destroyed at the end of the temporary's lifetime.
-void DumpTensorInfo(const Ort::TypeInfo& type_info, const std::string& name) {
-    const auto info = type_info.GetTensorTypeAndShapeInfo();
-    std::cout << "  " << name
-              << "  shape=" << ShapeToString(info.GetShape())
-              << "  type=" << TypeName(info.GetElementType()) << "\n";
+    int i = 3;
+    while (i < argc) {
+        std::string a = argv[i];
+        if (a == "--conf" && i + 1 < argc) {
+            out.conf = std::stof(argv[++i]);
+        } else if (a == "--cpu") {
+            out.prefer_cuda = false;
+        } else if (!a.empty() && a[0] != '-' && out.output.empty()) {
+            out.output = a;
+        } else {
+            std::cerr << "unrecognised arg: " << a << "\n";
+            return false;
+        }
+        ++i;
+    }
+    return true;
 }
 
 }  // namespace
 
+
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::cerr << "usage: " << argv[0] << " <model.onnx>\n";
+    Args args;
+    if (!ParseArgs(argc, argv, args)) {
+        PrintUsage(argv[0]);
         return 2;
     }
-    const fs::path model_path = argv[1];
-    if (!fs::exists(model_path)) {
-        std::cerr << "model not found: " << model_path << "\n";
+    if (!fs::exists(args.model)) {
+        std::cerr << "model not found: " << args.model << "\n";
+        return 1;
+    }
+    if (!fs::exists(args.image)) {
+        std::cerr << "image not found: " << args.image << "\n";
         return 1;
     }
 
     try {
-        Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "knots-smoke");
-        Ort::SessionOptions opts;
-        opts.SetIntraOpNumThreads(1);
+        Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "knots");
+        std::string active_provider;
+        Ort::Session session = knots::MakeSession(
+            env, args.model, args.prefer_cuda, active_provider);
 
-        // Try CUDA EP first; fall back to CPU. The session works either
-        // way — this just controls which device the forward pass runs on.
-        // If the binary is run without `--gpus all` (or without an NVIDIA
-        // GPU at all), AppendExecutionProvider_CUDA throws and we drop
-        // back to default (CPU).
-        std::string ep = "cpu";
-        try {
-            OrtCUDAProviderOptions cuda_opts{};
-            cuda_opts.device_id = 0;
-            opts.AppendExecutionProvider_CUDA(cuda_opts);
-            ep = "cuda:0";
-        } catch (const Ort::Exception& e) {
-            std::cerr << "(CUDA EP unavailable: " << e.what() << " — using CPU)\n";
+        cv::Mat image = cv::imread(args.image.string(), cv::IMREAD_COLOR);
+        if (image.empty()) {
+            std::cerr << "could not decode image: " << args.image << "\n";
+            return 1;
         }
 
-        Ort::Session session(env, model_path.c_str(), opts);
+        auto detections = knots::InferFrame(session, image, args.conf);
 
-        Ort::AllocatorWithDefaultOptions alloc;
-
-        std::cout << "model: " << model_path.string() << "\n";
-        std::cout << "session EP: " << ep << "\n";
-        std::cout << "available providers:";
-        for (const auto& p : Ort::GetAvailableProviders()) {
-            std::cout << " " << p;
+        nlohmann::json j;
+        j["frame"] = args.image.stem().string();
+        j["image_size"] = {image.cols, image.rows};
+        j["session_ep"] = active_provider;
+        j["conf_threshold"] = args.conf;
+        j["detections"] = nlohmann::json::array();
+        for (const auto& d : detections) {
+            nlohmann::json jd;
+            jd["bbox"] = {d.bbox.x, d.bbox.y,
+                          d.bbox.x + d.bbox.width,
+                          d.bbox.y + d.bbox.height};
+            jd["confidence"] = d.confidence;
+            jd["class"] = d.cls;
+            nlohmann::json poly = nlohmann::json::array();
+            for (const auto& p : d.polygon) {
+                poly.push_back({p.x, p.y});
+            }
+            jd["polygon"] = poly;
+            j["detections"].push_back(jd);
         }
-        std::cout << "\n\n";
 
-        const size_t n_inputs = session.GetInputCount();
-        std::cout << "inputs (" << n_inputs << "):\n";
-        for (size_t i = 0; i < n_inputs; ++i) {
-            const auto name = session.GetInputNameAllocated(i, alloc);
-            const auto type_info = session.GetInputTypeInfo(i);
-            DumpTensorInfo(type_info, name.get());
+        if (args.output.empty()) {
+            std::cout << j.dump(2) << "\n";
+        } else {
+            std::ofstream f(args.output);
+            f << j.dump(2);
         }
-
-        const size_t n_outputs = session.GetOutputCount();
-        std::cout << "outputs (" << n_outputs << "):\n";
-        for (size_t i = 0; i < n_outputs; ++i) {
-            const auto name = session.GetOutputNameAllocated(i, alloc);
-            const auto type_info = session.GetOutputTypeInfo(i);
-            DumpTensorInfo(type_info, name.get());
-        }
+        std::cerr << detections.size() << " detection(s)"
+                  << " (EP=" << active_provider << ")\n";
     } catch (const Ort::Exception& e) {
         std::cerr << "ONNX error: " << e.what() << "\n";
+        return 1;
+    } catch (const std::exception& e) {
+        std::cerr << "error: " << e.what() << "\n";
         return 1;
     }
     return 0;

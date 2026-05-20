@@ -26,12 +26,13 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn)
 find_package(nlohmann_json REQUIRED)
 find_package(OnnxRuntime REQUIRED)
 
 add_executable(knots
     src/main.cpp
+    src/inference.cpp
 )
 
 target_include_directories(knots PRIVATE
