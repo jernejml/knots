@@ -1,0 +1,52 @@
+# Inference image for the knots program.
+#
+# Builds the cpp/ project against OpenCV, nlohmann_json, and a downloaded
+# ONNX Runtime tarball. CPU execution provider only for now; CUDA can be
+# layered in later if inference speed becomes a concern.
+#
+# Build:
+#   docker build -f docker/Dockerfile.infer -t knots-infer .
+#
+# Run (smoke test against an exported model):
+#   docker run --rm \
+#     -v "$PWD/models:/work/models:ro" \
+#     knots-infer /work/cpp/build/knots /work/models/best.onnx
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /work
+
+# Build + runtime deps. libopencv-dev pulls in the OpenCV runtime libs as
+# well, so no separate runtime install is needed in this single-stage image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        ca-certificates \
+        wget \
+        libopencv-dev \
+        nlohmann-json3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# ONNX Runtime: ship a known-good tarball release rather than depending on
+# a distro package. The lib lands at /opt/onnxruntime/{include,lib}; we
+# expose ONNXRUNTIME_ROOT so the CMake FindOnnxRuntime module finds it,
+# and prepend its lib dir to LD_LIBRARY_PATH so the resulting binary runs.
+ARG ORT_VERSION=1.20.1
+RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz \
+ && tar -xzf onnxruntime-linux-x64-${ORT_VERSION}.tgz -C /opt \
+ && mv /opt/onnxruntime-linux-x64-${ORT_VERSION} /opt/onnxruntime \
+ && rm onnxruntime-linux-x64-${ORT_VERSION}.tgz
+
+ENV ONNXRUNTIME_ROOT=/opt/onnxruntime
+ENV LD_LIBRARY_PATH=/opt/onnxruntime/lib
+
+# Build the project.
+COPY cpp/ ./cpp/
+RUN cd cpp && mkdir build && cd build \
+ && cmake -DCMAKE_BUILD_TYPE=Release .. \
+ && cmake --build . -j
+
+# No ENTRYPOINT — caller provides full command line for clarity in CI logs.
