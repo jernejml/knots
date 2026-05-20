@@ -53,10 +53,24 @@ docker run --rm --gpus all \
   knots-train python3 scripts/export_onnx.py
 ```
 
-With `models/best.onnx` in place, run the one-shot pipeline and the test mode:
+With `models/best.onnx` in place, the test mode is a single invocation —
+inference, GT stitching, and metric aggregation happen in one process:
 
 ```bash
-# Inference + per-board stitching in one pass (no intermediate per-frame JSON).
+docker run --rm --gpus all \
+  -v "$PWD/data:/work/data:ro" \
+  -v "$PWD/models:/work/models:ro" \
+  -v "$PWD/analysis:/work/analysis" \
+  knots-infer knots eval \
+    --model /work/models/best.onnx \
+    --images-dir /work/data/images \
+    --labels-dir /work/data/labels \
+    --splits-csv /work/analysis/splits.csv --split test
+```
+
+To produce per-board polygons (without evaluation), use `knots run`:
+
+```bash
 docker run --rm --gpus all \
   -v "$PWD/data:/work/data:ro" \
   -v "$PWD/models:/work/models:ro" \
@@ -67,30 +81,12 @@ docker run --rm --gpus all \
     --input-dir /work/data/images \
     --output-dir /work/boards_out \
     --splits-csv /work/analysis/splits.csv --split test
-
-# Test mode: stitch GT bboxes through the same pipeline, then compare.
-docker run --rm \
-  -v "$PWD/data:/work/data:ro" \
-  -v "$PWD/analysis:/work/analysis:ro" \
-  -v "$PWD/boards_gt:/work/boards_gt" \
-  knots-infer knots gt-stitch \
-    --labels-dir /work/data/labels \
-    --images-dir /work/data/images \
-    --output-dir /work/boards_gt \
-    --splits-csv /work/analysis/splits.csv --split test
-
-docker run --rm \
-  -v "$PWD/boards_out:/work/boards_out:ro" \
-  -v "$PWD/boards_gt:/work/boards_gt:ro" \
-  -v "$PWD/analysis:/work/analysis" \
-  knots-infer knots eval \
-    --pred-dir /work/boards_out --gt-dir /work/boards_gt
 ```
 
-For finer-grained control, the pipeline can be run as two stages instead
-of one: `knots infer --output-dir <per-frame JSONs>` followed by
-`knots stitch --input-dir <per-frame JSONs> --output-dir <per-board JSONs>`.
-Use the two-stage form when you want to inspect raw per-frame detections
-or resume an interrupted run at frame granularity.
+For finer-grained debugging, the pipeline can also be run stage-by-stage:
+`knots infer` (per-frame JSONs) → `knots stitch` (per-board JSONs) →
+`knots gt-stitch` (per-board GT JSONs) → `knots eval --pred-dir P --gt-dir G`.
+Use the stage-by-stage form to inspect intermediate outputs or resume at
+frame granularity.
 
 Each script and `knots` subcommand accepts `--help` for full options.

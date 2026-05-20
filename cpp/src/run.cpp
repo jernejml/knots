@@ -20,12 +20,7 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <map>
-#include <opencv2/imgcodecs.hpp>
-#include <regex>
-#include <set>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -33,6 +28,7 @@
 #include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 #include "knots/inference.hpp"
+#include "knots/pipeline.hpp"
 #include "knots/stitching.hpp"
 
 namespace fs = std::filesystem;
@@ -116,62 +112,6 @@ bool ParseArgs(int argc, char** argv, Args& out) {
     return true;
 }
 
-const std::regex kFrameFileRe(R"(^(\d+)_(\d+)\.png$)");
-
-// Group frame stems by board, applying the same filter logic as `knots infer`.
-std::map<int, std::vector<std::pair<int, std::string>>> CollectByBoard(const Args& args) {
-    std::vector<std::string> explicit_stems;
-    if (!args.frames_csv.empty()) explicit_stems = cli::ParseFramesList(args.frames_csv);
-    if (!args.frames_file.empty()) {
-        auto from_file = cli::ParseFramesFile(args.frames_file);
-        explicit_stems.insert(explicit_stems.end(), from_file.begin(), from_file.end());
-    }
-    std::unordered_set<int> boards_filter;
-    if (!args.splits_csv.empty()) {
-        boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
-        if (boards_filter.empty()) {
-            std::cerr << "warning: no boards match split " << args.split << " in "
-                      << args.splits_csv << "\n";
-        }
-    }
-
-    std::set<std::string> dedup;
-    if (!explicit_stems.empty()) {
-        for (const auto& s : explicit_stems) {
-            int b = -1, fi = -1;
-            if (!cli::ParseFrameStem(s, b, fi)) {
-                std::cerr << "warning: unrecognised frame stem: " << s << "\n";
-                continue;
-            }
-            if (!boards_filter.empty() && !boards_filter.count(b)) continue;
-            dedup.insert(s);
-        }
-    } else {
-        for (const auto& entry : fs::directory_iterator(args.input_dir)) {
-            if (!entry.is_regular_file()) continue;
-            std::string fname = entry.path().filename().string();
-            std::smatch m;
-            if (!std::regex_match(fname, m, kFrameFileRe)) continue;
-            std::string stem = entry.path().stem().string();
-            int b = -1, fi = -1;
-            if (!cli::ParseFrameStem(stem, b, fi)) continue;
-            if (!boards_filter.empty() && !boards_filter.count(b)) continue;
-            dedup.insert(stem);
-        }
-    }
-
-    std::map<int, std::vector<std::pair<int, std::string>>> by_board;
-    for (const auto& stem : dedup) {
-        int b = -1, fi = -1;
-        if (!cli::ParseFrameStem(stem, b, fi)) continue;
-        by_board[b].emplace_back(fi, stem);
-    }
-    for (auto& [_, frames] : by_board) {
-        std::sort(frames.begin(), frames.end());
-    }
-    return by_board;
-}
-
 }  // namespace
 
 int CmdRun(int argc, char** argv) {
@@ -191,7 +131,22 @@ int CmdRun(int argc, char** argv) {
     fs::create_directories(args.output_dir);
 
     try {
-        const auto by_board = CollectByBoard(args);
+        std::vector<std::string> explicit_stems;
+        if (!args.frames_csv.empty()) explicit_stems = cli::ParseFramesList(args.frames_csv);
+        if (!args.frames_file.empty()) {
+            auto from_file = cli::ParseFramesFile(args.frames_file);
+            explicit_stems.insert(explicit_stems.end(), from_file.begin(), from_file.end());
+        }
+        std::unordered_set<int> boards_filter;
+        if (!args.splits_csv.empty()) {
+            boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
+            if (boards_filter.empty()) {
+                std::cerr << "warning: no boards match split " << args.split << " in "
+                          << args.splits_csv << "\n";
+            }
+        }
+        const auto by_board =
+            pipeline::CollectFramesByBoard(args.input_dir, ".png", explicit_stems, boards_filter);
         if (by_board.empty()) {
             std::cerr << "no frames to process\n";
             return 0;
@@ -209,52 +164,27 @@ int CmdRun(int argc, char** argv) {
                   << "  force=" << (args.force ? "true" : "false") << "\n";
 
         size_t n_boards_out = 0, n_boards_skipped = 0;
-        size_t n_frames_processed = 0, n_frames_unread = 0, n_frames_failed = 0;
         size_t total_knots = 0;
+        pipeline::InferStats infer_stats;
         const size_t heartbeat = std::max<size_t>(20, total_frames / 20);
         size_t global_idx = 0;
+        auto frame_done = [&]() {
+            ++global_idx;
+            if (global_idx % heartbeat == 0 || global_idx == total_frames) {
+                std::cerr << "  ... " << global_idx << "/" << total_frames << " frames\n";
+            }
+        };
 
         for (const auto& [board, frames] : by_board) {
             fs::path out_path = args.output_dir / (std::to_string(board) + ".json");
             if (fs::exists(out_path) && !args.force) {
                 ++n_boards_skipped;
-                global_idx += frames.size();
+                for (size_t i = 0; i < frames.size(); ++i) frame_done();
                 continue;
             }
 
-            std::vector<FramePolys> fp_list;
-            fp_list.reserve(frames.size());
-            for (const auto& [frame_idx, stem] : frames) {
-                ++global_idx;
-                fs::path img_path = args.input_dir / (stem + ".png");
-                cv::Mat image = cv::imread(img_path.string(), cv::IMREAD_COLOR);
-                if (image.empty()) {
-                    std::cerr << "  WARN unreadable: " << img_path << "\n";
-                    ++n_frames_unread;
-                    continue;
-                }
-                try {
-                    auto dets = InferFrame(session, image, args.conf);
-                    FramePolys fp;
-                    fp.frame_idx = frame_idx;
-                    fp.width = image.cols;
-                    fp.height = image.rows;
-                    fp.polygons.reserve(dets.size());
-                    for (auto& d : dets) {
-                        if (d.polygon.size() >= 3) {
-                            fp.polygons.push_back(std::move(d.polygon));
-                        }
-                    }
-                    fp_list.push_back(std::move(fp));
-                    ++n_frames_processed;
-                } catch (const std::exception& e) {
-                    std::cerr << "  WARN inference failed for " << stem << ": " << e.what() << "\n";
-                    ++n_frames_failed;
-                }
-                if (global_idx % heartbeat == 0 || global_idx == total_frames) {
-                    std::cerr << "  ... " << global_idx << "/" << total_frames << " frames\n";
-                }
-            }
+            auto fp_list = pipeline::InferBoardFrames(session, args.input_dir, frames, args.conf,
+                                                     infer_stats, frame_done);
             if (fp_list.empty()) {
                 std::cerr << "  WARN board " << board << ": no usable frames, skipping stitch\n";
                 continue;
@@ -267,8 +197,8 @@ int CmdRun(int argc, char** argv) {
         std::cerr << "\nResult\n"
                   << "  boards: written=" << n_boards_out << "  skipped=" << n_boards_skipped
                   << "\n"
-                  << "  frames: processed=" << n_frames_processed << "  unread=" << n_frames_unread
-                  << "  failed=" << n_frames_failed << "\n"
+                  << "  frames: processed=" << infer_stats.processed
+                  << "  unread=" << infer_stats.unread << "  failed=" << infer_stats.failed << "\n"
                   << "  total per-board polygons=" << total_knots << "\n"
                   << "  output dir: " << args.output_dir << "\n";
     } catch (const Ort::Exception& e) {

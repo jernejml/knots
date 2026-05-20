@@ -13,20 +13,15 @@
 //   --boards LIST | --boards-file FILE
 //   --splits-csv PATH + --split {train,val,test}
 
-#include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <map>
-#include <opencv2/imgcodecs.hpp>
-#include <regex>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
+#include "knots/pipeline.hpp"
 #include "knots/stitching.hpp"
 
 namespace fs = std::filesystem;
@@ -105,33 +100,6 @@ bool ParseArgs(int argc, char** argv, GtStitchArgs& out) {
     return true;
 }
 
-const std::regex kLabelFileRe(R"(^(\d+)_(\d+)\.txt$)");
-
-// Parse YOLO bbox labels for one frame; emit each box as a 4-vertex
-// rectangle polygon in frame-local pixel coords, clipped to image bounds.
-std::vector<std::vector<cv::Point>> ParseYoloBboxesAsPolys(const fs::path& label_path, int w,
-                                                           int h) {
-    std::vector<std::vector<cv::Point>> polys;
-    std::ifstream f(label_path);
-    if (!f) return polys;
-    std::string line;
-    while (std::getline(f, line)) {
-        std::istringstream iss(line);
-        int cls;
-        float cx, cy, bw, bh;
-        if (!(iss >> cls >> cx >> cy >> bw >> bh)) continue;
-        const float fx = cx * w, fy = cy * h;
-        const float fbw = bw * w, fbh = bh * h;
-        const int x1 = std::max(0, static_cast<int>(std::round(fx - fbw / 2)));
-        const int y1 = std::max(0, static_cast<int>(std::round(fy - fbh / 2)));
-        const int x2 = std::min(w, static_cast<int>(std::round(fx + fbw / 2)));
-        const int y2 = std::min(h, static_cast<int>(std::round(fy + fbh / 2)));
-        if (x2 <= x1 || y2 <= y1) continue;
-        polys.push_back({{x1, y1}, {x2, y1}, {x2, y2}, {x1, y2}});
-    }
-    return polys;
-}
-
 }  // namespace
 
 int CmdGtStitch(int argc, char** argv) {
@@ -151,56 +119,29 @@ int CmdGtStitch(int argc, char** argv) {
     fs::create_directories(args.output_dir);
 
     try {
-        // Resolve which boards we want.
         std::unordered_set<int> boards_filter;
         if (!args.boards_csv.empty()) boards_filter = cli::ParseBoardsList(args.boards_csv);
         if (!args.boards_file.empty()) boards_filter = cli::ParseBoardsFile(args.boards_file);
         if (!args.splits_csv.empty())
             boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
 
-        // Walk labels dir; group label files by board.
-        std::map<int, std::vector<int>> board_frames;
-        for (const auto& entry : fs::directory_iterator(args.labels_dir)) {
-            if (!entry.is_regular_file()) continue;
-            std::string name = entry.path().filename().string();
-            std::smatch m;
-            if (!std::regex_match(name, m, kLabelFileRe)) continue;
-            const int board = std::stoi(m[1]);
-            const int frame_idx = std::stoi(m[2]);
-            if (!boards_filter.empty() && !boards_filter.count(board)) continue;
-            board_frames[board].push_back(frame_idx);
-        }
+        const auto by_board =
+            pipeline::CollectFramesByBoard(args.labels_dir, ".txt", {}, boards_filter);
 
-        std::cerr << "knots gt-stitch: " << board_frames.size() << " board(s)"
+        std::cerr << "knots gt-stitch: " << by_board.size() << " board(s)"
                   << "  stride=" << args.stride_px << "  force=" << (args.force ? "true" : "false")
                   << "\n";
 
         size_t n_boards_out = 0, n_skipped = 0, total_polys = 0;
-        for (auto& [board, frames] : board_frames) {
+        for (const auto& [board, frames] : by_board) {
             fs::path out_path = args.output_dir / (std::to_string(board) + ".json");
             if (fs::exists(out_path) && !args.force) {
                 ++n_skipped;
                 continue;
             }
 
-            std::vector<FramePolys> fp_list;
-            fp_list.reserve(frames.size());
-            for (int frame_idx : frames) {
-                const std::string stem = std::to_string(board) + "_" + std::to_string(frame_idx);
-                fs::path img_path = args.images_dir / (stem + ".png");
-                cv::Mat img = cv::imread(img_path.string(), cv::IMREAD_COLOR);
-                if (img.empty()) {
-                    std::cerr << "  WARN unreadable image " << img_path << " — skipping frame\n";
-                    continue;
-                }
-                FramePolys fp;
-                fp.frame_idx = frame_idx;
-                fp.width = img.cols;
-                fp.height = img.rows;
-                fp.polygons =
-                    ParseYoloBboxesAsPolys(args.labels_dir / (stem + ".txt"), img.cols, img.rows);
-                fp_list.push_back(std::move(fp));
-            }
+            auto fp_list =
+                pipeline::LoadGtBoardFrames(args.labels_dir, args.images_dir, frames);
             if (fp_list.empty()) continue;
 
             total_polys += StitchBoardToJson(board, std::move(fp_list), args.stride_px,

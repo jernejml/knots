@@ -40,6 +40,7 @@ add_executable(knots
     src/eval.cpp
     src/run.cpp
     src/cli_util.cpp
+    src/pipeline.cpp
 )
 
 target_include_directories(knots PRIVATE
