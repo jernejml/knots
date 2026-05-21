@@ -16,10 +16,12 @@
 # to override).
 #
 # Usage:
-#   ./run.sh                  # full pipeline, --split test
-#   SPLIT=val ./run.sh        # evaluate on val instead of test
-#   SKIP_BUILD=1 ./run.sh     # don't even check whether images need building
-#   SKIP_TRAIN=1 ./run.sh     # reuse existing best.pt under out/runs/segment/
+#   ./run.sh                       # full pipeline, --split test
+#   SPLIT=val ./run.sh             # evaluate on val instead of test
+#   SKIP_BUILD=1 ./run.sh          # don't even check whether images need building
+#   SKIP_TRAIN=1 ./run.sh          # reuse existing best.pt under out/runs/segment/
+#   CONFIG=configs/foo.toml ./run.sh   # use a different TOML; empty disables --config
+#                                  # (default: configs/default.toml)
 #
 # Requires Docker + NVIDIA Container Toolkit on the host (CUDA 12.8 base).
 #
@@ -35,6 +37,16 @@ cd "$(dirname "$0")"   # cd to repo root
 SPLIT="${SPLIT:-test}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
+CONFIG="${CONFIG:-configs/default.toml}"
+
+# CONFIG_ARGS is appended to every Python invocation. Empty CONFIG opts out of
+# --config entirely (scripts fall back to argparse defaults). The configs dir
+# is bind-mounted read-only into every container so /work/$CONFIG resolves.
+CONFIG_ARGS=()
+if [[ -n "$CONFIG" ]]; then
+    [[ -f "$CONFIG" ]] || { echo "CONFIG=$CONFIG not found on host" >&2; exit 2; }
+    CONFIG_ARGS=(--config "/work/$CONFIG")
+fi
 
 log() { printf '\n=== %s ===\n' "$*" >&2; }
 
@@ -62,19 +74,22 @@ log "analyse frames + annotations"
 docker run --rm \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
-    knots-data python3 scripts/analyze_dataset.py
+    -v "$PWD/configs:/work/configs:ro" \
+    knots-data python3 scripts/analyze_dataset.py "${CONFIG_ARGS[@]}"
 
 log "aggregate per-board features"
 docker run --rm \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
-    knots-data python3 scripts/board_features.py
+    -v "$PWD/configs:/work/configs:ro" \
+    knots-data python3 scripts/board_features.py "${CONFIG_ARGS[@]}"
 
 log "stratified train/val/test split"
 docker run --rm \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
-    knots-data python3 scripts/make_splits.py
+    -v "$PWD/configs:/work/configs:ro" \
+    knots-data python3 scripts/make_splits.py "${CONFIG_ARGS[@]}"
 
 # --- 5. SAM2 polygon upgrade ------------------------------------------------
 
@@ -82,7 +97,8 @@ log "SAM2 polygon upgrade (slow — minutes on GPU)"
 docker run --rm --gpus all --ipc=host \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
-    knots-train python3 scripts/sam_polygons.py
+    -v "$PWD/configs:/work/configs:ro" \
+    knots-train python3 scripts/sam_polygons.py "${CONFIG_ARGS[@]}"
 
 # --- 6. YOLO training -------------------------------------------------------
 
@@ -93,7 +109,8 @@ else
     docker run --rm --gpus all --ipc=host \
         -v "$PWD/data:/work/data:ro" \
         -v "$PWD/out:/work/out" \
-        knots-train python3 scripts/train_yolo.py
+        -v "$PWD/configs:/work/configs:ro" \
+        knots-train python3 scripts/train_yolo.py "${CONFIG_ARGS[@]}"
 fi
 
 # --- 7. ONNX export ---------------------------------------------------------
@@ -102,7 +119,8 @@ log "export to ONNX"
 docker run --rm --gpus all --ipc=host \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
-    knots-train python3 scripts/export_onnx.py
+    -v "$PWD/configs:/work/configs:ro" \
+    knots-train python3 scripts/export_onnx.py "${CONFIG_ARGS[@]}"
 
 # --- 8. Test-mode evaluation ------------------------------------------------
 
@@ -110,6 +128,7 @@ log "knots eval (Mode B): infer + GT-stitch + match in one pass, split=$SPLIT"
 docker run --rm --gpus all \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
+    -v "$PWD/configs:/work/configs:ro" \
     knots-infer knots eval \
     --model /work/out/models/best.onnx \
     --images-dir /work/data/images \
