@@ -41,6 +41,7 @@ add_executable(knots
     src/run.cpp
     src/cli_util.cpp
     src/pipeline.cpp
+    src/geometry.cpp
 )
 
 target_include_directories(knots PRIVATE
@@ -56,3 +57,36 @@ target_link_libraries(knots PRIVATE
 target_compile_options(knots PRIVATE
     -Wall -Wextra -Wpedantic
 )
+
+# -- Tests -------------------------------------------------------------------
+# Linked against the geometry + cli_util source files directly (no ORT, no
+# ultralytics, no I/O), so the test binary builds in seconds and stays
+# isolated from the heavy inference dependencies. Enabled by default; disable
+# with -DBUILD_TESTS=OFF when iterating on the main binary.
+
+option(BUILD_TESTS "Build the unit tests" ON)
+
+if(BUILD_TESTS)
+    find_package(GTest REQUIRED)
+    enable_testing()
+
+    add_executable(knots_tests
+        tests/test_geometry.cpp
+        tests/test_cli_util.cpp
+        src/geometry.cpp
+        src/cli_util.cpp
+    )
+    target_include_directories(knots_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(knots_tests PRIVATE
+        GTest::gtest_main
+        ${OpenCV_LIBS}
+    )
+    target_compile_options(knots_tests PRIVATE
+        -Wall -Wextra -Wpedantic
+    )
+
+    include(GoogleTest)
+    gtest_discover_tests(knots_tests)
+endif()

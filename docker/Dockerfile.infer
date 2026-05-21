@@ -28,6 +28,7 @@ RUN apt-get update \
         wget \
         libopencv-dev \
         nlohmann-json3-dev \
+        libgtest-dev \
  && rm -rf /var/lib/apt/lists/*
 
 # ONNX Runtime GPU variant. The host CUDA/cuDNN runtime is provided by the
@@ -46,12 +47,14 @@ RUN wget -q https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VE
 ENV ONNXRUNTIME_ROOT=/opt/onnxruntime
 ENV LD_LIBRARY_PATH=/opt/onnxruntime/lib:${LD_LIBRARY_PATH}
 
-# Build the project, then symlink the binary onto PATH so callers can invoke
+# Build the project + unit tests, run the tests (image build fails if any
+# test fails), then symlink the binary onto PATH so callers can invoke
 # `knots <subcommand>` directly (e.g. `docker run knots-infer knots eval …`).
 COPY cpp/ ./cpp/
 RUN cd cpp && mkdir build && cd build \
  && cmake -DCMAKE_BUILD_TYPE=Release .. \
  && cmake --build . -j \
+ && ctest --output-on-failure \
  && ln -s /work/cpp/build/knots /usr/local/bin/knots
 
 # No ENTRYPOINT — caller provides full command line for clarity in CI logs.
