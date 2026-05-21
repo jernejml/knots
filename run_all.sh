@@ -59,7 +59,7 @@ docker run --rm \
 # --- 3. SAM2 polygon upgrade ------------------------------------------------
 
 log "SAM2 polygon upgrade (slow — minutes on GPU)"
-docker run --rm --gpus all \
+docker run --rm --gpus all --ipc=host \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
     knots-train python3 scripts/sam_polygons.py
@@ -70,7 +70,7 @@ if [[ "$SKIP_TRAIN" == "1" ]]; then
     log "skip training (SKIP_TRAIN=1) — expects existing best.pt under out/runs/segment/"
 else
     log "train YOLOv11-seg (longest stage — hours on a single GPU)"
-    docker run --rm --gpus all \
+    docker run --rm --gpus all --ipc=host \
         -v "$PWD/data:/work/data:ro" \
         -v "$PWD/out:/work/out" \
         knots-train python3 scripts/train_yolo.py
