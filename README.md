@@ -18,6 +18,9 @@ Three design choices shape the rest:
   and training (SAM2, Ultralytics YOLOv11-seg); a small C++ binary on
   OpenCV + ONNX Runtime owns the runtime pipeline.
 
+The dataset isn't committed; populate `data/images/` and `data/labels/`
+after cloning.
+
 ## 1. Prerequisites
 
 Verifies the host can run the pipeline (bash, docker, NVIDIA stack, end-to-end probe).
@@ -39,21 +42,24 @@ Single entry point; defaults to running every stage end-to-end.
 ### Pipeline data flow
 
 ```
-analyze ──► features ──► split   ──►   out/analysis/splits.csv
+Training (offline)
 
-sam ──► train ──► export                 (SAM2 polygons → YOLO seg → ONNX)
-                    │
-                    ▼
-              out/models/best.onnx
-                    │
-                    ▼
-data/images/ ──► infer ──► out/boards/pred/<board>.json
-                                          │
-data/labels/ ──► gt    ──► out/boards/gt/<board>.json
-                                          │
-                                          ├──► viz  ──► out/boards/viz/<board>.jpg
-                                          │
-                                          └──► eval ──► eval_boards.json
+  analyze ──► features ──► split ─┐
+                                  │
+  data/labels/ ──► sam ───────────┤
+                                  ▼
+                                train ──► export ──► out/models/best.onnx
+
+
+Runtime (uses out/models/best.onnx)
+
+  data/images/ ──► infer ──► out/boards/pred/<board>.json
+                                            │
+  data/labels/ ──► gt    ──► out/boards/gt/<board>.json
+                                            │
+                                            ├──► viz  ──► out/boards/viz/<board>.jpg
+                                            │
+                                            └──► eval ──► eval_boards.json
 ```
 
 `infer` and `gt` are independent. `viz` consumes both (predictions in
