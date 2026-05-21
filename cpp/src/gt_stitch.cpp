@@ -119,11 +119,8 @@ int CmdGtStitch(int argc, char** argv) {
     fs::create_directories(args.output_dir);
 
     try {
-        std::unordered_set<int> boards_filter;
-        if (!args.boards_csv.empty()) boards_filter = cli::ParseBoardsList(args.boards_csv);
-        if (!args.boards_file.empty()) boards_filter = cli::ParseBoardsFile(args.boards_file);
-        if (!args.splits_csv.empty())
-            boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
+        const auto boards_filter = cli::BuildBoardsFilter(
+            args.boards_csv, args.boards_file, args.splits_csv, args.split);
 
         const auto by_board =
             pipeline::CollectFramesByBoard(args.labels_dir, ".txt", {}, boards_filter);

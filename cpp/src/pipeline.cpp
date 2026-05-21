@@ -1,6 +1,7 @@
 #include "knots/pipeline.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -19,17 +20,34 @@ namespace {
 
 // Parse YOLO bboxes from a label file; emit each as a 4-vertex rectangle
 // polygon in frame-local pixel coords, clipped to image bounds.
+//
+// Defensive against accidentally being pointed at YOLO-seg labels
+// (cls x1 y1 x2 y2 x3 y3 ...): a seg line has 7+ tokens, so reading the
+// first 5 as a bbox silently misuses the first two polygon vertices as
+// (cx, cy, w, h). We check for extra tokens and skip such lines with a
+// per-file warning rather than producing nonsense rectangles.
 std::vector<std::vector<cv::Point>> ParseYoloBboxesAsPolys(const fs::path& label_path, int w,
                                                           int h) {
     std::vector<std::vector<cv::Point>> polys;
     std::ifstream f(label_path);
     if (!f) return polys;
     std::string line;
+    bool warned_seg = false;
     while (std::getline(f, line)) {
         std::istringstream iss(line);
         int cls;
         float cx, cy, bw, bh;
         if (!(iss >> cls >> cx >> cy >> bw >> bh)) continue;
+        std::string extra;
+        if (iss >> extra) {
+            if (!warned_seg) {
+                std::cerr << "  WARN " << label_path << ": extra tokens past the YOLO "
+                          << "bbox 5-tuple (looks like seg-format) — skipping; "
+                          << "pass YOLO bbox labels for GT\n";
+                warned_seg = true;
+            }
+            continue;
+        }
         const float fx = cx * w, fy = cy * h;
         const float fbw = bw * w, fbh = bh * h;
         const int x1 = std::max(0, static_cast<int>(std::round(fx - fbw / 2)));
@@ -88,7 +106,10 @@ std::vector<FramePolys> InferBoardFrames(Ort::Session& session, const fs::path& 
             continue;
         }
         try {
+            const auto t0 = std::chrono::steady_clock::now();
             auto dets = InferFrame(session, image, conf_threshold);
+            const auto t1 = std::chrono::steady_clock::now();
+            stats.total_inference_sec += std::chrono::duration<double>(t1 - t0).count();
             FramePolys fp;
             fp.frame_idx = frame_idx;
             fp.width = image.cols;

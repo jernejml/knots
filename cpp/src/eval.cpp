@@ -424,21 +424,8 @@ std::map<int, BoardPolygons> CollectModeBData(const EvalArgs& args, std::string&
         throw std::runtime_error("labels dir not found: " + args.labels_dir.string());
     }
 
-    std::unordered_set<int> boards_filter;
-    if (!args.boards_csv.empty()) boards_filter = cli::ParseBoardsList(args.boards_csv);
-    if (!args.boards_file.empty()) boards_filter = cli::ParseBoardsFile(args.boards_file);
-    if (!args.splits_csv.empty()) {
-        auto split_boards = cli::LoadBoardsInSplit(args.splits_csv, args.split);
-        if (boards_filter.empty()) {
-            boards_filter = std::move(split_boards);
-        } else {
-            std::unordered_set<int> isect;
-            for (int b : boards_filter) {
-                if (split_boards.count(b)) isect.insert(b);
-            }
-            boards_filter = std::move(isect);
-        }
-    }
+    const auto boards_filter = cli::BuildBoardsFilter(
+        args.boards_csv, args.boards_file, args.splits_csv, args.split);
 
     const auto by_board =
         pipeline::CollectFramesByBoard(args.labels_dir, ".txt", {}, boards_filter);
@@ -602,6 +589,13 @@ int CmdEval(int argc, char** argv) {
             std::cout << "  frames: processed=" << infer_stats.processed
                       << "  unread=" << infer_stats.unread << "  failed=" << infer_stats.failed
                       << "\n";
+            if (infer_stats.processed > 0) {
+                const double avg_ms =
+                    1000.0 * infer_stats.total_inference_sec / infer_stats.processed;
+                std::cout << "  inference: total=" << std::fixed << std::setprecision(2)
+                          << infer_stats.total_inference_sec << "s  avg=" << std::fixed
+                          << std::setprecision(1) << avg_ms << " ms/frame\n";
+            }
         }
 
         if (!args.no_write) {
@@ -620,6 +614,17 @@ int CmdEval(int argc, char** argv) {
                 {"mean_iou_micro", mean_iou_micro},
                 {"mean_iou_macro", mean_iou_macro},
             };
+            if (mode_b) {
+                out["aggregate"]["frames_processed"] = infer_stats.processed;
+                out["aggregate"]["inference_total_sec"] =
+                    std::round(infer_stats.total_inference_sec * 1000.0) / 1000.0;
+                if (infer_stats.processed > 0) {
+                    out["aggregate"]["inference_avg_ms_per_frame"] =
+                        std::round(1000.0 * infer_stats.total_inference_sec /
+                                   infer_stats.processed * 100.0) /
+                        100.0;
+                }
+            }
             out["per_board"] = nlohmann::json::array();
             for (const auto& b : per_board) {
                 nlohmann::json jb;

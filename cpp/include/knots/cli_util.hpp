@@ -42,4 +42,20 @@ std::vector<std::string> ParseFramesFile(const std::filesystem::path& p);
 // "0_5" → (board=0, frame_idx=5). Returns false on malformed input.
 bool ParseFrameStem(const std::string& stem, int& board, int& frame_idx);
 
+// Compose the board-id filter from the three flags every subcommand exposes.
+// Semantics:
+//   1. --boards LIST and --boards-file PATH are alternatives; if both are set
+//      the file wins (last-write semantics, matching argparse-style flags).
+//   2. --splits-csv + --split intersect with whatever the previous step set.
+//      If no --boards/--boards-file was given, the splits set is the filter.
+//   3. Empty result means "no filter" (all boards admitted) — only when no
+//      flag was passed; an explicit but empty intersection is still empty.
+//
+// Used by `knots eval` (Mode B) and `knots gt-stitch` so the same flags mean
+// the same thing in both.
+std::unordered_set<int> BuildBoardsFilter(const std::string& boards_csv,
+                                          const std::filesystem::path& boards_file,
+                                          const std::filesystem::path& splits_csv,
+                                          const std::string& split);
+
 }  // namespace knots::cli

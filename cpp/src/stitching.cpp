@@ -16,16 +16,26 @@ StitchedBoard StitchBoardPolygons(int board, std::vector<FramePolys> frames, int
     std::sort(frames.begin(), frames.end(),
               [](const auto& a, const auto& b) { return a.frame_idx < b.frame_idx; });
 
-    out.board_height = frames.front().height;
+    // Defensive canvas sizing: max over all frames, not just frames.back().
+    // The last (max-idx) frame is not guaranteed to have the widest extent
+    // if frame widths vary; same idea for height. fillPoly clips silently
+    // outside the canvas, so undersizing here drops pixels without warning.
+    int board_height = 0;
+    int board_width = 0;
     for (const auto& f : frames) {
-        if (f.height != out.board_height) {
+        if (f.height > board_height) board_height = f.height;
+        const int right_edge = f.frame_idx * stride_px + f.width;
+        if (right_edge > board_width) board_width = right_edge;
+    }
+    out.board_height = board_height;
+    out.board_width = board_width;
+    for (const auto& f : frames) {
+        if (f.height != board_height) {
             std::cerr << "  WARN board " << board << " frame " << f.frame_idx
-                      << ": height=" << f.height << " vs board " << out.board_height
-                      << " — using board height for mask\n";
+                      << ": height=" << f.height << " vs canvas height " << board_height
+                      << " — polygons will still fit (canvas = max height)\n";
         }
     }
-    const int max_frame_idx = frames.back().frame_idx;
-    out.board_width = max_frame_idx * stride_px + frames.back().width;
 
     cv::Mat mask = cv::Mat::zeros(out.board_height, out.board_width, CV_8U);
     for (const auto& f : frames) {

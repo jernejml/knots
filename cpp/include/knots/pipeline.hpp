@@ -34,10 +34,13 @@ FramesByBoard CollectFramesByBoard(const std::filesystem::path& dir,
                                    const std::unordered_set<int>& boards_filter);
 
 // Counters surfaced by InferBoardFrames so callers can print a summary.
+// `total_inference_sec` is the sum of wall-clock InferFrame calls (CPU/GPU
+// session.Run + pre/post processing), excluding image I/O and JSON write.
 struct InferStats {
     size_t processed = 0;
     size_t unread = 0;
     size_t failed = 0;
+    double total_inference_sec = 0.0;
 };
 
 // Called once per frame after it has been processed, skipped, or failed.
