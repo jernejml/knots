@@ -3,7 +3,7 @@
 
 Reads out/analysis/frames.json + out/analysis/annotations.json (so analyze_dataset.py
 must have been run first), writes a full per-board dump to
-out/analysis/board_features.{csv,json}, and prints a sorted view to stdout. The
+out/analysis/board_features.json, and prints a sorted view to stdout. The
 output columns:
 
     frames       number of labelled frames in this board
@@ -24,7 +24,6 @@ re-opened and no labels re-parsed.
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -83,7 +82,7 @@ def main() -> None:
         type=int,
         default=20,
         help="Print at most this many boards to stdout. 0 = print all. "
-        "The on-disk CSV/JSON always contains every board.",
+        "The on-disk JSON always contains every board.",
     )
     args = parser.parse_args()
 
@@ -149,9 +148,7 @@ def main() -> None:
 
     # Write full unsorted-by-config dump (sorted by board id for determinism).
     rows_all = sorted(rows, key=lambda r: r["board"])
-    csv_path = args.analysis_dir / "board_features.csv"
     json_path = args.analysis_dir / "board_features.json"
-    write_csv(csv_path, rows_all)
     write_json(json_path, rows_all)
 
     # Stdout view: re-sort by requested key, then limit.
@@ -161,7 +158,7 @@ def main() -> None:
 
     limit_str = "all" if args.limit <= 0 else str(args.limit)
     print(f"boards={len(by_board)}  sorted by {args.sort} {args.order} (limit={limit_str})")
-    print(f"written: {rel_to_root(csv_path)}, {rel_to_root(json_path)}")
+    print(f"written: {rel_to_root(json_path)}")
     print()
 
     header = (
@@ -181,27 +178,6 @@ def main() -> None:
             f"{r['avg_dark']:>8.3f}  {r['max_dark']:>8.3f}  "
             f"{r['cluster_frac']*100:>7.1f}%  {r['edge_frac']*100:>6.1f}%  {h:>6}"
         )
-
-
-def write_csv(path: Path, rows: list[dict]) -> None:
-    if not rows:
-        path.write_text("")
-        return
-    cols = list(rows[0].keys())
-    with path.open("w", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(cols)
-        for r in rows:
-            out = []
-            for c in cols:
-                v = r.get(c)
-                if isinstance(v, bool):
-                    out.append(int(v))
-                elif isinstance(v, float):
-                    out.append(f"{v:.6g}")
-                else:
-                    out.append(v)
-            writer.writerow(out)
 
 
 def write_json(path: Path, rows: list[dict]) -> None:

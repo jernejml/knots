@@ -14,8 +14,8 @@ For every frame in data/images/ this script computes:
     with a hybrid (absolute + relative) near-touching threshold.
 
 Outputs (written to --output-dir, default out/analysis/):
-  frames.csv / frames.json            one row per frame
-  annotations.csv / annotations.json  one row per annotation
+  frames.json        one row per frame
+  annotations.json   one row per annotation
 
 Stdout is intentionally terse: a config banner, file counts, and a flag
 block listing anomalies (non-640 widths, mixed heights inside a board,
@@ -25,7 +25,6 @@ frames where the wood strip could not be detected).
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import re
 from pathlib import Path
@@ -429,29 +428,6 @@ def build_annotation_rows(
     return rows, edge_touching
 
 
-def write_csv(path: Path, rows: list[dict]) -> None:
-    if not rows:
-        path.write_text("")
-        return
-    cols = list(rows[0].keys())
-    with path.open("w", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(cols)
-        for r in rows:
-            out = []
-            for c in cols:
-                v = r.get(c)
-                if isinstance(v, list):
-                    out.append(json.dumps(v))
-                elif isinstance(v, bool):
-                    out.append(int(v))
-                elif isinstance(v, float):
-                    out.append(f"{v:.6g}")
-                else:
-                    out.append(v)
-            writer.writerow(out)
-
-
 def write_json(path: Path, rows: list[dict]) -> None:
     with path.open("w") as fh:
         json.dump(rows, fh, indent=2)
@@ -568,14 +544,12 @@ def main() -> None:
         )
 
     out_dir = args.output_dir
-    write_csv(out_dir / "frames.csv", frames_out)
     write_json(out_dir / "frames.json", frames_out)
-    write_csv(out_dir / "annotations.csv", annots_out)
     write_json(out_dir / "annotations.json", annots_out)
 
     print()
-    print(f"frames written:      {len(frames_out)} -> frames.csv, frames.json")
-    print(f"annotations written: {len(annots_out)} -> annotations.csv, annotations.json")
+    print(f"frames written:      {len(frames_out)} -> frames.json")
+    print(f"annotations written: {len(annots_out)} -> annotations.json")
 
     print()
     print("Anomalies")

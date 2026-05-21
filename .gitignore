@@ -3,3 +3,4 @@ data/labels/
 .claude
 cpp/build/
 out/
+scripts/__pycache__
