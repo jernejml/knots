@@ -2,27 +2,37 @@
 
 Per-board wood-knot polygon extraction from sequential color-camera frames.
 
-Frames tile each board along its long axis with a 50 % overlap (640 px
-wide, 320 px stride). The pipeline upgrades the provided rectangle
-annotations to polygons with SAM2, trains a YOLOv11-seg model, runs it
-from C++ via ONNX Runtime, and raster-unions per-frame polygons into
-per-board polygons.
+Frames overlap 50 % — width 640 px, stride 320 px, so every board pixel is
+seen twice. Input is those frames plus rectangle annotations; output is
+per-board polygons for every knot.
+
+Three design choices shape the rest:
+
+- **SAM2 amplifies rectangle labels into polygon labels offline**, so the
+  segmentation model trains on polygons without anyone hand-tracing them.
+- **Cross-frame overlap is collapsed by raster-union, not polygon matching.**
+  Each frame's polygons are pasted onto a board-sized mask;
+  `findContours(RETR_EXTERNAL)` re-vectorises whatever fused. One
+  `fillPoly` call replaces an N²-pair cross-frame deduplicator.
+- **The Python ↔ C++ boundary is one ONNX file.** Python does data prep
+  and training (SAM2, Ultralytics YOLOv11-seg); a small C++ binary on
+  OpenCV + ONNX Runtime owns the runtime pipeline.
 
 ## 1. Prerequisites
+
+Verifies the host can run the pipeline (bash, docker, NVIDIA stack, end-to-end probe).
 
 ```bash
 ./prerequisites.sh   # use --help for additional options
 ```
 
----
-
 ## 2. Running the pipeline
+
+Single entry point; defaults to running every stage end-to-end.
 
 ```bash
 ./run.sh   # use --help for stages, env vars, and examples
 ```
-
----
 
 ## 3. Architecture
 
@@ -50,37 +60,6 @@ data/labels/ ──► gt    ──► out/boards/gt/<board>.json
 green, GT in red on the stitched board image); `eval` consumes both via
 `knots eval` Mode A — bbox-IoU greedy matching + per-pair mask IoU on the
 cached per-board polygons. No inference at eval time, no GPU.
-
-### Per-board inference algorithm
-
-For board B with N frames, frames overlap 50 % (width 640, stride 320):
-
-```
-   frame 0      frame 1      frame 2      ...     frame N-1
-  [0,  640]   [320, 960]   [640, 1280]            [(N-1)·320, (N-1)·320+640]
-     │            │            │                       │
-     ▼            ▼            ▼                       ▼
-   ┌─── YOLO11-seg via ONNX Runtime (per-frame inference) ───┐
-     │            │            │                       │
-     ▼            ▼            ▼                       ▼
-   polys₀       polys₁       polys₂                 polys_{N-1}     (frame-local px)
-                              │
-                              ▼   translate by (frame_idx · 320, 0)
-                              │
-                              ▼   allocate board-sized mask
-                              │
-                              ▼   cv::fillPoly all translated polygons
-                              │
-                              ▼   cv::findContours(RETR_EXTERNAL) + approxPolyDP
-                              │
-                              ▼
-                  per-board polygon list (board coords)
-```
-
-The raster-union (`fillPoly` + `findContours(RETR_EXTERNAL)`) dedups
-polygons across the 50 % frame overlap automatically: touching or
-overlapping shapes fuse into a single external contour. No explicit
-cross-frame matching code is needed.
 
 ### Docker images
 
