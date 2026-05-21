@@ -22,6 +22,10 @@
 #   SKIP_TRAIN=1 ./run.sh          # reuse existing best.pt under out/runs/segment/
 #   CONFIG=configs/foo.toml ./run.sh   # use a different TOML; empty disables --config
 #                                  # (default: configs/default.toml)
+#   RUN_NAME=iter5 ./run.sh        # ultralytics 'name' for the train run; the
+#                                  # exported ONNX and eval JSON co-locate under
+#                                  # out/runs/segment/$RUN_NAME/. Empty / unset
+#                                  # keeps the train_yolo config default.
 #
 # Requires Docker + NVIDIA Container Toolkit on the host (CUDA 12.8 base).
 #
@@ -38,6 +42,7 @@ SPLIT="${SPLIT:-test}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_TRAIN="${SKIP_TRAIN:-0}"
 CONFIG="${CONFIG:-configs/default.toml}"
+RUN_NAME="${RUN_NAME:-}"
 
 # CONFIG_ARGS is appended to every Python invocation. Empty CONFIG opts out of
 # --config entirely (scripts fall back to argparse defaults). The configs dir
@@ -48,7 +53,20 @@ if [[ -n "$CONFIG" ]]; then
     CONFIG_ARGS=(--config "/work/$CONFIG")
 fi
 
+# Empty RUN_NAME leaves train_yolo's config/argparse default in place.
+TRAIN_NAME_ARGS=()
+[[ -n "$RUN_NAME" ]] && TRAIN_NAME_ARGS=(--name "$RUN_NAME")
+
 log() { printf '\n=== %s ===\n' "$*" >&2; }
+
+# After training, locate the run dir ultralytics wrote into. Used to place
+# the eval JSON alongside best.pt/best.onnx so each run owns its artefacts.
+# Returns "" if no run_meta_train_yolo.json is found.
+find_latest_train_run_dir() {
+    local latest
+    latest=$(ls -1t out/runs/segment/*/run_meta_train_yolo.json 2>/dev/null | head -1)
+    [[ -n "$latest" ]] && dirname "$latest"
+}
 
 image_exists() { docker image inspect "$1" >/dev/null 2>&1; }
 
@@ -110,7 +128,7 @@ else
         -v "$PWD/data:/work/data:ro" \
         -v "$PWD/out:/work/out" \
         -v "$PWD/configs:/work/configs:ro" \
-        knots-train python3 scripts/train_yolo.py "${CONFIG_ARGS[@]}"
+        knots-train python3 scripts/train_yolo.py "${CONFIG_ARGS[@]}" "${TRAIN_NAME_ARGS[@]}"
 fi
 
 # --- 7. ONNX export ---------------------------------------------------------
@@ -124,6 +142,16 @@ docker run --rm --gpus all --ipc=host \
 
 # --- 8. Test-mode evaluation ------------------------------------------------
 
+# Locate the training run dir whose model we're about to eval, so the eval
+# JSON co-locates with the weights/exported ONNX/run_meta_*.json files. If
+# nothing is found (unlikely — would mean no training has ever run), eval
+# falls back to its built-in default of out/analysis/eval_boards.json.
+RUN_DIR=$(find_latest_train_run_dir || true)
+EVAL_OUT_ARGS=()
+if [[ -n "$RUN_DIR" ]]; then
+    EVAL_OUT_ARGS=(--out "/work/${RUN_DIR}/eval_boards.json")
+fi
+
 log "knots eval (Mode B): infer + GT-stitch + match in one pass, split=$SPLIT"
 docker run --rm --gpus all \
     -v "$PWD/data:/work/data:ro" \
@@ -133,6 +161,11 @@ docker run --rm --gpus all \
     --model /work/out/models/best.onnx \
     --images-dir /work/data/images \
     --labels-dir /work/data/labels \
-    --splits-csv /work/out/analysis/splits.csv --split "$SPLIT"
+    --splits-csv /work/out/analysis/splits.csv --split "$SPLIT" \
+    "${EVAL_OUT_ARGS[@]}"
 
-log "done — metrics in out/analysis/eval_boards.json"
+if [[ -n "$RUN_DIR" ]]; then
+    log "done — metrics in ${RUN_DIR}/eval_boards.json"
+else
+    log "done — metrics in out/analysis/eval_boards.json (no train run dir found)"
+fi

@@ -33,10 +33,19 @@ The simplest path is the top-level orchestrator, which chains every stage
 end-to-end on the default test split:
 
 ```bash
-./run.sh                  # full pipeline
-SPLIT=val ./run.sh        # evaluate on val instead of test
-SKIP_TRAIN=1 ./run.sh     # reuse existing best.pt under out/runs/segment/
+./run.sh                       # full pipeline, --split test
+SPLIT=val ./run.sh             # evaluate on val instead of test
+SKIP_TRAIN=1 ./run.sh          # reuse existing best.pt under out/runs/segment/
+RUN_NAME=iter5 ./run.sh        # name the training run; exported ONNX and
+                               # eval JSON co-locate under out/runs/segment/iter5/
+CONFIG=configs/foo.toml ./run.sh   # alternate TOML; empty disables --config
 ```
+
+Each training run owns its artefacts: `out/runs/segment/<name>/` holds the
+weights, `best.onnx` next to `best.pt`, every stage's `run_meta_*.json`, and
+the eval JSON. `out/models/best.onnx` is a relative symlink to the latest
+export, so consumers using the fixed path still work. Use
+`python3 scripts/list_runs.py` to see a one-row-per-run table.
 
 To drive a single stage by hand (useful for iteration), each script accepts
 `--config configs/default.toml` and standard CLI flags. The Python pipeline,

@@ -6,13 +6,17 @@ image and reads final boxes/masks — no postprocessing required. The cost
 is that the confidence/IoU thresholds become fixed at export time; we
 accept that for now.
 
-Defaults: load the most-recent best.pt under out/runs/segment/*/weights/ and
-write to out/models/best.onnx as the stable handoff path.
+Defaults: load the most-recent best.pt under out/runs/segment/*/weights/
+and write best.onnx **next to that best.pt** so each training run owns its
+own exported model. A relative symlink at out/models/best.onnx is refreshed
+to point at the freshest export, so callers using the fixed path
+(e.g. `knots eval --model out/models/best.onnx`) keep working.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from stage_util import (
@@ -66,8 +70,10 @@ def main() -> None:
     ap.add_argument(
         "--out-dir",
         type=Path,
-        default=REPO_ROOT / "out" / "models",
-        help="Stable destination for the exported ONNX file.",
+        default=None,
+        help="Where to write best.onnx; default = next to best.pt under the "
+        "training run's weights/ dir. out/models/best.onnx is always "
+        "refreshed as the 'latest' symlink regardless.",
     )
     ap.add_argument(
         "--imgsz",
@@ -93,14 +99,32 @@ def main() -> None:
     args = ap.parse_args()
 
     with stage_timer(STAGE) as timing:
-        _run(args)
-    save_run_meta(args.out_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+        out_dir = _run(args)
+    save_run_meta(out_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
 
 
-def _run(args: argparse.Namespace) -> None:
+LATEST_LINK = REPO_ROOT / "out" / "models" / "best.onnx"
+
+
+def _refresh_latest_link(target: Path) -> None:
+    """Update LATEST_LINK to point at `target` via a relative symlink."""
+    LATEST_LINK.parent.mkdir(parents=True, exist_ok=True)
+    target_resolved = target.resolve()
+    # If LATEST_LINK is itself the target file (e.g. user passed --out-dir
+    # out/models explicitly), don't try to symlink a file onto itself.
+    if LATEST_LINK.resolve(strict=False) == target_resolved:
+        return
+    if LATEST_LINK.is_symlink() or LATEST_LINK.exists():
+        LATEST_LINK.unlink()
+    rel = os.path.relpath(target_resolved, LATEST_LINK.parent.resolve())
+    LATEST_LINK.symlink_to(rel)
+
+
+def _run(args: argparse.Namespace) -> Path:
     weights = args.weights or latest_best_weights(args.runs_dir)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    dst = args.out_dir / "best.onnx"
+    out_dir = args.out_dir if args.out_dir is not None else weights.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dst = out_dir / "best.onnx"
 
     print(f"source weights: {rel_to_root(weights)}")
     print(f"target ONNX:    {rel_to_root(dst)}")
@@ -127,6 +151,12 @@ def _run(args: argparse.Namespace) -> None:
         dst.write_bytes(exported.read_bytes())
     size_mb = dst.stat().st_size / 1e6
     print(f"\nexported → {rel_to_root(dst)}  ({size_mb:.1f} MB)")
+
+    _refresh_latest_link(dst)
+    if LATEST_LINK.is_symlink():
+        print(f"latest pointer: {rel_to_root(LATEST_LINK)} → {os.readlink(LATEST_LINK)}")
+
+    return out_dir
 
 
 if __name__ == "__main__":
