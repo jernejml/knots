@@ -39,6 +39,7 @@ from scipy.ndimage import label as ndi_label
 from stage_util import (
     add_config_arg,
     apply_config_defaults,
+    iter_with_progress,
     load_config_section,
     save_run_meta,
     stage_timer,
@@ -487,7 +488,7 @@ def _run(args: argparse.Namespace) -> None:
     height_mismatch: list[tuple[int, int, int, int]] = []
     strip_fail: list[tuple[int, int]] = []
 
-    for board, frame, img_path in frame_paths:
+    for board, frame, img_path in iter_with_progress(frame_paths, "frames", every=500):
         with Image.open(img_path) as img:
             rgb = np.asarray(img.convert("RGB"))
             lum = np.asarray(img.convert("L"))

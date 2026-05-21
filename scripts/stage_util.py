@@ -107,6 +107,25 @@ def _coerce_config_value(key: str, v: Any, action: argparse.Action) -> Any:
     return v
 
 
+def iter_with_progress(items, label: str = "items", every: int | None = None):
+    """Yield from `items` while printing '  ... i/n label' to stderr.
+
+    `every` is the heartbeat stride. Default `None` derives ~20 ticks across
+    the run (`max(20, n // 20)`); pass a fixed int (e.g. `every=500`) when the
+    work is fast enough that you want a coarser rhythm regardless of dataset
+    size. The final tick at `i == n` always fires.
+
+    Works for any sized iterable that supports `len()`. The heartbeat fires
+    *after* each yielded body, so `continue`-skipped items still count.
+    """
+    n = len(items)
+    step = every if every is not None else max(20, n // 20)
+    for i, item in enumerate(items, start=1):
+        yield item
+        if i % step == 0 or i == n:
+            print(f"  ... {i}/{n} {label}", file=sys.stderr)
+
+
 @contextmanager
 def stage_timer(name: str) -> Iterator[dict[str, float]]:
     """Wall-time the enclosed block; print 'elapsed=…' to stderr on exit.

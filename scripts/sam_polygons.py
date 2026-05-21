@@ -42,6 +42,7 @@ import numpy as np
 from stage_util import (
     add_config_arg,
     apply_config_defaults,
+    iter_with_progress,
     load_config_section,
     save_run_meta,
     stage_timer,
@@ -255,9 +256,8 @@ def _run(args: argparse.Namespace) -> None:
     n_degenerate_skipped = 0
     n_bboxes_total = 0
     n_fallback_polygons = 0
-    heartbeat_every = max(50, len(frames) // 20)  # ~20 lines of progress
 
-    for i, img_path in enumerate(frames, start=1):
+    for img_path in iter_with_progress(frames, "frames", every=max(50, len(frames) // 20)):
         stem = img_path.stem
         label_path = labels_dir / f"{stem}.txt"
         out_label = args.output_dir / f"{stem}.txt"
@@ -291,9 +291,6 @@ def _run(args: argparse.Namespace) -> None:
             lines.append(polygon_to_yolo_seg(poly, w, h))
         out_label.write_text("\n".join(lines) + "\n")
         n_processed += 1
-
-        if i % heartbeat_every == 0 or i == len(frames):
-            print(f"  ... {i}/{len(frames)} frames", file=sys.stderr)
 
     fallback_pct = (100.0 * n_fallback_polygons / n_bboxes_total) if n_bboxes_total else 0.0
     print()
