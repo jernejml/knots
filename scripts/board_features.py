@@ -28,7 +28,16 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    save_run_meta,
+    stage_timer,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE = "board_features"
 
 
 def rel_to_root(path: Path) -> str:
@@ -55,9 +64,14 @@ SORT_KEYS = (
 
 
 def main() -> None:
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    add_config_arg(parser)
     parser.add_argument(
         "--analysis-dir",
         type=Path,
@@ -84,8 +98,15 @@ def main() -> None:
         help="Print at most this many boards to stdout. 0 = print all. "
         "The on-disk JSON always contains every board.",
     )
+    apply_config_defaults(parser, load_config_section(pre_args.config, STAGE))
     args = parser.parse_args()
 
+    with stage_timer(STAGE) as timing:
+        _run(args)
+    save_run_meta(args.analysis_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+
+
+def _run(args: argparse.Namespace) -> None:
     frames_path = args.analysis_dir / "frames.json"
     annots_path = args.analysis_dir / "annotations.json"
     if not frames_path.is_file() or not annots_path.is_file():

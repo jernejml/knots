@@ -30,10 +30,19 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE = "analyze_dataset"
 
 import numpy as np
 from PIL import Image
 from scipy.ndimage import label as ndi_label
+
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    save_run_meta,
+    stage_timer,
+)
 
 
 def rel_to_root(path: Path) -> str:
@@ -51,9 +60,14 @@ CONNECTIVITY_4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
 
 
 def parse_args() -> argparse.Namespace:
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    add_config_arg(p)
     p.add_argument(
         "--data-dir",
         type=Path,
@@ -117,6 +131,7 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Process at most this many frames (0 = all). Useful for smoke tests.",
     )
+    apply_config_defaults(p, load_config_section(pre_args.config, STAGE))
     return p.parse_args()
 
 
@@ -435,6 +450,12 @@ def write_json(path: Path, rows: list[dict]) -> None:
 
 def main() -> None:
     args = parse_args()
+    with stage_timer(STAGE) as timing:
+        _run(args)
+    save_run_meta(args.output_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+
+
+def _run(args: argparse.Namespace) -> None:
     bucket_thresholds = parse_bucket_thresholds(args.bucket_thresholds)
 
     images_dir = args.data_dir / "images"

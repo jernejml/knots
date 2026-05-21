@@ -27,7 +27,16 @@ import os
 import re
 from pathlib import Path
 
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    save_run_meta,
+    stage_timer,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE = "train_yolo"
 FILENAME_RE = re.compile(r"^(\d+)_(\d+)\.png$")
 VALID_SPLITS = ("train", "val", "test")
 
@@ -131,10 +140,17 @@ def build_staging(args: argparse.Namespace) -> Path:
 
 
 def main() -> None:
+    # Two-stage parse: pre-parser grabs --config so its values can pre-fill
+    # the real parser's defaults before --help / parse_args runs.
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_config_arg(ap)
     ap.add_argument(
         "--data-dir",
         type=Path,
@@ -181,36 +197,42 @@ def main() -> None:
     ap.add_argument(
         "--setup-only", action="store_true", help="Build the staging dir and exit (no training)."
     )
+    apply_config_defaults(ap, load_config_section(pre_args.config, STAGE))
     args = ap.parse_args()
 
-    yaml_path = build_staging(args)
-    if args.setup_only:
-        print("--setup-only: skipping training")
-        return
+    with stage_timer(STAGE) as timing:
+        yaml_path = build_staging(args)
+        if args.setup_only:
+            print("--setup-only: skipping training")
+            return
 
-    from ultralytics import YOLO
+        from ultralytics import YOLO
 
-    print(f"loading {args.model} …")
-    model = YOLO(args.model)
+        print(f"loading {args.model} …")
+        model = YOLO(args.model)
 
-    print(
-        f"training: epochs={args.epochs}  imgsz={args.imgsz}  "
-        f"batch={args.batch}  patience={args.patience}  device={args.device}"
-    )
-    train_kwargs = dict(
-        data=str(yaml_path),
-        epochs=args.epochs,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        patience=args.patience,
-        name=args.name,
-        device=args.device,
-        workers=args.workers,
-        resume=args.resume,
-    )
-    train_kwargs["project"] = str(args.project)
-    model.train(**train_kwargs)
-    print("\nbest weights:", model.trainer.best)
+        print(
+            f"training: epochs={args.epochs}  imgsz={args.imgsz}  "
+            f"batch={args.batch}  patience={args.patience}  device={args.device}"
+        )
+        train_kwargs = dict(
+            data=str(yaml_path),
+            epochs=args.epochs,
+            imgsz=args.imgsz,
+            batch=args.batch,
+            patience=args.patience,
+            name=args.name,
+            device=args.device,
+            workers=args.workers,
+            resume=args.resume,
+        )
+        train_kwargs["project"] = str(args.project)
+        model.train(**train_kwargs)
+        print("\nbest weights:", model.trainer.best)
+        save_dir = Path(model.trainer.save_dir)
+
+    save_run_meta(save_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+    print(f"run meta written: {rel_to_root(save_dir / 'run_meta.json')}")
 
 
 if __name__ == "__main__":

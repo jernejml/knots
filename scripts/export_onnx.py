@@ -15,7 +15,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    save_run_meta,
+    stage_timer,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE = "export_onnx"
 
 
 def rel_to_root(path: Path) -> str:
@@ -33,10 +42,15 @@ def latest_best_weights(runs_dir: Path) -> Path:
 
 
 def main() -> None:
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_config_arg(ap)
     ap.add_argument(
         "--weights",
         type=Path,
@@ -75,8 +89,15 @@ def main() -> None:
     ap.add_argument(
         "--device", default="cpu", help="Export device; CPU is fine and avoids GPU init."
     )
+    apply_config_defaults(ap, load_config_section(pre_args.config, STAGE))
     args = ap.parse_args()
 
+    with stage_timer(STAGE) as timing:
+        _run(args)
+    save_run_meta(args.out_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+
+
+def _run(args: argparse.Namespace) -> None:
     weights = args.weights or latest_best_weights(args.runs_dir)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     dst = args.out_dir / "best.onnx"

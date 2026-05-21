@@ -39,7 +39,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    save_run_meta,
+    stage_timer,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE = "sam_polygons"
 
 
 def rel_to_root(path: Path) -> str:
@@ -172,10 +181,15 @@ def list_frames(images_dir: Path, board_filter: set[int] | None) -> list[Path]:
 
 
 def main() -> None:
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_config_arg(ap)
     ap.add_argument(
         "--data-dir",
         type=Path,
@@ -204,8 +218,15 @@ def main() -> None:
     ap.add_argument(
         "--limit", type=int, default=0, help="Process at most N frames (0 = all). Smoke test knob."
     )
+    apply_config_defaults(ap, load_config_section(pre_args.config, STAGE))
     args = ap.parse_args()
 
+    with stage_timer(STAGE) as timing:
+        _run(args)
+    save_run_meta(args.output_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+
+
+def _run(args: argparse.Namespace) -> None:
     images_dir = args.data_dir / "images"
     labels_dir = args.data_dir / "labels"
     if not images_dir.is_dir() or not labels_dir.is_dir():

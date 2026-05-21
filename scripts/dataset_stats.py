@@ -22,7 +22,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    stage_timer,
+)
+
 FRAME_RE = re.compile(r"^(?P<board>\d+)_(?P<frame>\d+)\.(?P<ext>png|txt)$")
+STAGE = "dataset_stats"
 
 SORT_KEYS = ("frames", "gaps", "span", "annots", "first", "last", "board")
 
@@ -87,7 +95,12 @@ def collect(data_dir: Path) -> tuple[dict[int, BoardStats], int, int]:
 
 
 def main() -> None:
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     parser = argparse.ArgumentParser(description=__doc__)
+    add_config_arg(parser)
     parser.add_argument(
         "--data-dir",
         type=Path,
@@ -112,8 +125,14 @@ def main() -> None:
         default=20,
         help="Print at most this many boards. 0 = print all.",
     )
+    apply_config_defaults(parser, load_config_section(pre_args.config, STAGE))
     args = parser.parse_args()
 
+    with stage_timer(STAGE):
+        _run(args)
+
+
+def _run(args: argparse.Namespace) -> None:
     stats, image_count, label_count = collect(args.data_dir)
 
     print(

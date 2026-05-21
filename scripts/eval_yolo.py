@@ -15,7 +15,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    save_run_meta,
+    stage_timer,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE = "eval_yolo"
 
 
 def rel_to_root(path: Path) -> str:
@@ -33,10 +42,15 @@ def latest_best_weights(runs_dir: Path) -> Path:
 
 
 def main() -> None:
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_config_arg(ap)
     ap.add_argument(
         "--weights",
         type=Path,
@@ -62,8 +76,16 @@ def main() -> None:
     ap.add_argument(
         "--name", default=None, help="Output subdir name; default = ultralytics auto-naming."
     )
+    apply_config_defaults(ap, load_config_section(pre_args.config, STAGE))
     args = ap.parse_args()
 
+    with stage_timer(STAGE) as timing:
+        save_dir = _run(args)
+
+    save_run_meta(Path(save_dir), STAGE, args, elapsed_sec=timing["elapsed_sec"])
+
+
+def _run(args: argparse.Namespace) -> Path:
     weights = args.weights or latest_best_weights(args.runs_dir)
     print(f"weights: {rel_to_root(weights)}")
     print(f"data:    {rel_to_root(args.data)}")
@@ -94,6 +116,7 @@ def main() -> None:
         f"mAP50={metrics.seg.map50:.3f}  mAP50-95={metrics.seg.map:.3f}"
     )
     print(f"  outputs (incl. sample renders): {metrics.save_dir}")
+    return Path(metrics.save_dir)
 
 
 if __name__ == "__main__":

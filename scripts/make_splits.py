@@ -31,7 +31,16 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
+from stage_util import (
+    add_config_arg,
+    apply_config_defaults,
+    load_config_section,
+    save_run_meta,
+    stage_timer,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE = "make_splits"
 
 
 def rel_to_root(path: Path) -> str:
@@ -113,10 +122,15 @@ def largest_remainder(n: int, ratios: tuple[float, float, float]) -> tuple[int, 
 
 
 def main() -> None:
+    pre = argparse.ArgumentParser(add_help=False)
+    add_config_arg(pre)
+    pre_args, _ = pre.parse_known_args()
+
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_config_arg(parser)
     parser.add_argument(
         "--analysis-dir",
         type=Path,
@@ -183,8 +197,15 @@ def main() -> None:
         help="Comma-separated list of features to audit. "
         "Defaults to every numeric column not used in --stratify.",
     )
+    apply_config_defaults(parser, load_config_section(pre_args.config, STAGE))
     args = parser.parse_args()
 
+    with stage_timer(STAGE) as timing:
+        _run(args)
+    save_run_meta(args.analysis_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+
+
+def _run(args: argparse.Namespace) -> None:
     stratify_specs = args.stratify or [("frames", [10.0, 23.0]), ("cluster_frac", [0.0])]
     ratios = parse_ratios(args.ratios)
 
