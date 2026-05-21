@@ -4,33 +4,54 @@
 # Stages (canonical order):
 #   clean      wipe out/, cpp/build/, host Python caches
 #   nuke       clean + docker image rm knots-{data,train,infer}
-#   analyze    analyze_dataset.py        [knots-data]
-#   features   board_features.py         [knots-data]
-#   split      make_splits.py            [knots-data]
-#   sam        sam_polygons.py           [knots-train, GPU]
-#   train      train_yolo.py             [knots-train, GPU]
-#   export     export_onnx.py            [knots-train, GPU]
-#   infer      knots eval (metrics)      [knots-infer, GPU]
+#   analyze    analyze_dataset.py                [knots-data]
+#   features   board_features.py                 [knots-data]
+#   split      make_splits.py                    [knots-data]
+#   sam        sam_polygons.py                   [knots-train, GPU]
+#   train      train_yolo.py                     [knots-train, GPU]
+#   export     export_onnx.py                    [knots-train, GPU]
+#   infer      knots run (per-board polygons)    [knots-infer, GPU]
+#   gt         knots gt-stitch (per-board GT)    [knots-infer]
+#   viz        stitched board overlays (JPEG)    [knots-data]
+#   eval       knots eval (Mode A: metrics)      [knots-infer]
+#
+# infer and eval map to the two task-brief deliverables: infer produces
+# "polygon bounds of all knots on each individual board" (writes
+# out/boards/pred/<board>.json); eval is the "test mode which compares the
+# outputs to already annotated scans" (writes eval_boards.json next to the
+# latest train run, or under out/analysis/ if there isn't one).
+#
+# eval consumes the per-board JSONs that infer (out/boards/pred/) and gt
+# (out/boards/gt/) write, via `knots eval` Mode A. So inference runs exactly
+# once per pipeline pass and eval is cheap (seconds, no GPU). The catch:
+# ./run.sh eval alone fails unless both upstream stages have run — use
+# ./run.sh infer gt eval, or ./run.sh all.
 #
 # Usage:
 #   ./run.sh                       # full pipeline (all pipeline stages)
 #   ./run.sh all                   # same, explicit
-#   ./run.sh sam train infer       # subset; canonical order is enforced
+#   ./run.sh sam train infer eval  # subset; canonical order is enforced
 #                                  # regardless of how you type the tokens
-#   ./run.sh infer                 # just metrics against the existing
-#                                  # out/models/best.onnx
+#   ./run.sh infer                 # produce per-board polygons; reuses the
+#                                  # existing out/models/best.onnx
+#   ./run.sh eval                  # metrics; same model, plus GT labels
 #   ./run.sh clean all             # nuke local artefacts, then re-run from zero
 #   ./run.sh nuke all              # also remove docker images, then re-run
 #   ./run.sh --help                # stage list + env-var help
 #
 # Image builds are demand-driven: only images that the selected stages need
-# are built (e.g. `./run.sh infer` skips knots-data and knots-train).
+# are built (e.g. `./run.sh infer eval` skips knots-data and knots-train).
 #
 # clean / nuke prompt for confirmation when stdin is a TTY. Skip the prompt
 # with FORCE=1 (useful in CI or one-shot scripts).
 #
 # Env-var knobs:
-#   SPLIT=val ./run.sh infer       # evaluate on val instead of test
+#   SPLIT=test ./run.sh eval       # restrict infer/eval to a named split.
+#                                  # Default 'all' processes every board
+#                                  # under data/images/. Use SPLIT=test for
+#                                  # a clean held-out metric signal during
+#                                  # model iteration; the brief's two
+#                                  # deliverables both want all boards.
 #   SKIP_BUILD=1 ./run.sh          # skip the image-build phase entirely
 #   FORCE=1 ./run.sh clean         # suppress the destructive-action prompt
 #   CONFIG=configs/foo.toml ./run.sh   # alternate TOML; empty disables
@@ -56,7 +77,7 @@ cd "$(dirname "$0")"   # cd to repo root
 
 # --- Config & flags ---------------------------------------------------------
 
-SPLIT="${SPLIT:-test}"
+SPLIT="${SPLIT:-all}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 FORCE="${FORCE:-0}"
 CONFIG="${CONFIG:-configs/default.toml}"
@@ -79,7 +100,7 @@ TRAIN_NAME_ARGS=()
 
 # Canonical order. clean/nuke run before any pipeline work; `all` expands to
 # the pipeline subset only (you have to ask for clean/nuke explicitly).
-PIPELINE_STAGES=(analyze features split sam train export infer)
+PIPELINE_STAGES=(analyze features split sam train export infer gt viz eval)
 ALL_STAGES=(clean nuke "${PIPELINE_STAGES[@]}")
 
 # Map each pipeline stage to the docker image it needs. clean/nuke don't
@@ -92,6 +113,9 @@ declare -A STAGE_IMAGE=(
     [train]=knots-train
     [export]=knots-train
     [infer]=knots-infer
+    [gt]=knots-infer
+    [viz]=knots-data
+    [eval]=knots-infer
 )
 
 CLEAN_TARGETS=(out cpp/build scripts/__pycache__ .ruff_cache)
@@ -203,26 +227,82 @@ stage_export() {
 }
 
 stage_infer() {
-    # Locate the training run dir whose model we're about to eval, so the
-    # eval JSON co-locates with the weights/exported ONNX/run_meta_*.json
-    # files. If nothing is found, eval falls back to its built-in default
-    # of out/analysis/eval_boards.json.
+    # Produces the task brief's primary deliverable: per-board polygons
+    # written to out/boards/pred/<board>.json. SPLIT honoured for iteration;
+    # default 'all' is what the brief asks for.
+    local splits_args=()
+    if [[ "$SPLIT" != "all" ]]; then
+        splits_args=(--splits-csv /work/out/analysis/splits.csv --split "$SPLIT")
+    fi
+    log "knots run: per-frame inference + per-board stitching, split=$SPLIT"
+    docker run --rm --gpus all \
+        -v "$PWD/data:/work/data:ro" \
+        -v "$PWD/out:/work/out" \
+        -v "$PWD/configs:/work/configs:ro" \
+        knots-infer knots run \
+        --model /work/out/models/best.onnx \
+        --input-dir /work/data/images \
+        --output-dir /work/out/boards/pred \
+        "${splits_args[@]}"
+    log "done — per-board polygons in out/boards/pred/"
+}
+
+stage_gt() {
+    # Per-board GT polygons from per-frame YOLO bboxes. Same raster-union
+    # pipeline as `knots stitch` so pred and GT outputs are directly
+    # comparable. No GPU needed — `knots gt-stitch` is pure CV+IO.
+    local splits_args=()
+    if [[ "$SPLIT" != "all" ]]; then
+        splits_args=(--splits-csv /work/out/analysis/splits.csv --split "$SPLIT")
+    fi
+    log "knots gt-stitch: per-board GT polygons, split=$SPLIT"
+    docker run --rm \
+        -v "$PWD/data:/work/data:ro" \
+        -v "$PWD/out:/work/out" \
+        -v "$PWD/configs:/work/configs:ro" \
+        knots-infer knots gt-stitch \
+        --labels-dir /work/data/labels \
+        --images-dir /work/data/images \
+        --output-dir /work/out/boards/gt \
+        "${splits_args[@]}"
+    log "done — per-board GT polygons in out/boards/gt/"
+}
+
+stage_viz() {
+    # Reviewer-friendly per-board JPEGs: source frames stitched into one wide
+    # image with predicted polygons (green) and GT polygons (red) overlaid.
+    # GT overlay is opportunistic — falls back to pred-only if out/boards/gt/
+    # is empty (precommitted-model demo case).
+    log "visualize_boards: stitched overlays of pred + GT polygons"
+    docker run --rm \
+        -v "$PWD/data:/work/data:ro" \
+        -v "$PWD/out:/work/out" \
+        -v "$PWD/configs:/work/configs:ro" \
+        knots-data python3 scripts/visualize_boards.py "${CONFIG_ARGS[@]}"
+    log "done — board overlays in out/boards/viz/"
+}
+
+stage_eval() {
+    # Mode A: compare out/boards/pred/ (from `infer`) with out/boards/gt/
+    # (from `gt`). No model, no inference, no GPU — just bbox match + mask
+    # IoU on the already-stitched per-board JSONs. Cheap; safe to re-run
+    # while tweaking thresholds.
+    #
+    # Locate the training run dir so the eval JSON co-locates with the
+    # weights/ONNX/run_meta_*.json files. If nothing's there, eval falls
+    # back to its built-in default of out/analysis/eval_boards.json.
     local run_dir eval_out_args=()
     run_dir=$(find_latest_train_run_dir || true)
     if [[ -n "$run_dir" ]]; then
         eval_out_args=(--out "/work/${run_dir}/eval_boards.json")
     fi
 
-    log "knots eval (Mode B): infer + GT-stitch + match in one pass, split=$SPLIT"
-    docker run --rm --gpus all \
-        -v "$PWD/data:/work/data:ro" \
+    log "knots eval (Mode A): compare out/boards/pred and out/boards/gt"
+    docker run --rm \
         -v "$PWD/out:/work/out" \
-        -v "$PWD/configs:/work/configs:ro" \
         knots-infer knots eval \
-        --model /work/out/models/best.onnx \
-        --images-dir /work/data/images \
-        --labels-dir /work/data/labels \
-        --splits-csv /work/out/analysis/splits.csv --split "$SPLIT" \
+        --pred-dir /work/out/boards/pred \
+        --gt-dir /work/out/boards/gt \
         "${eval_out_args[@]}"
 
     if [[ -n "$run_dir" ]]; then
@@ -241,22 +321,27 @@ Usage: ./run.sh [STAGE ...]
 Stages (canonical order; tokens may be given in any order on the command line):
   clean      wipe out/, cpp/build/, host Python caches
   nuke       clean + docker image rm knots-{data,train,infer}
-  analyze    analyze_dataset.py        [knots-data]
-  features   board_features.py         [knots-data]
-  split      make_splits.py            [knots-data]
-  sam        sam_polygons.py           [knots-train, GPU]
-  train      train_yolo.py             [knots-train, GPU]
-  export     export_onnx.py            [knots-train, GPU]
-  infer      knots eval (metrics)      [knots-infer, GPU]
+  analyze    analyze_dataset.py                [knots-data]
+  features   board_features.py                 [knots-data]
+  split      make_splits.py                    [knots-data]
+  sam        sam_polygons.py                   [knots-train, GPU]
+  train      train_yolo.py                     [knots-train, GPU]
+  export     export_onnx.py                    [knots-train, GPU]
+  infer      knots run (per-board polygons)    [knots-infer, GPU]
+  gt         knots gt-stitch (per-board GT)    [knots-infer]
+  viz        stitched board overlays (JPEG)    [knots-data]
+  eval       knots eval (Mode A: metrics)      [knots-infer]
   all        every pipeline stage above (also the default with no args)
 
 Examples:
   ./run.sh                     # full pipeline
-  ./run.sh infer               # just metrics; reuses out/models/best.onnx
-  ./run.sh train export infer  # re-train, re-export, re-eval
+  ./run.sh infer               # per-board polygons; reuses out/models/best.onnx
+  ./run.sh infer gt viz        # polygons + GT + reviewer-friendly overlays
+  ./run.sh eval                # metrics from out/boards/{pred,gt}/ (cheap)
+  ./run.sh train export infer eval   # re-train, re-export, re-run both modes
   ./run.sh clean all           # wipe artefacts, then re-run from zero
   FORCE=1 ./run.sh clean       # skip the destructive-action prompt (CI)
-  SPLIT=val ./run.sh infer     # evaluate on val split
+  SPLIT=test ./run.sh eval     # restrict to test split (default: all boards)
 
 Env vars: SPLIT, CONFIG, RUN_NAME, SKIP_BUILD, FORCE (see file header).
 EOF
@@ -272,7 +357,7 @@ else
         case "$arg" in
             -h|--help) print_help; exit 0 ;;
             all) for s in "${PIPELINE_STAGES[@]}"; do want["$s"]=1; done ;;
-            clean|nuke|analyze|features|split|sam|train|export|infer)
+            clean|nuke|analyze|features|split|sam|train|export|infer|gt|viz|eval)
                 want["$arg"]=1 ;;
             *) echo "unknown stage: $arg" >&2; echo >&2; print_help >&2; exit 2 ;;
         esac
