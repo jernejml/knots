@@ -33,7 +33,7 @@ audit_threshold  = 0.20
 stratify         = ["frames:10,23", "cluster_frac:0"]
 
 [sam_polygons]
-model  = "sam2.1_l.pt"   # was _s; SAM is fast enough — go big once, polygons are cached on disk
+model  = "sam2.1_s.pt"   # was _s; SAM is fast enough — go big once, polygons are cached on disk
 device = "cuda:0"
 limit  = 0
 
