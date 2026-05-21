@@ -9,7 +9,7 @@ Staging layout:
     out/yolo_dataset/
         dataset.yaml
         images/   (symlinks into data/images/)
-        labels/   (symlinks into out/labels/seg_l/)
+        labels/   (symlinks into out/labels/seg/)
         train.txt val.txt test.txt   (paths relative to repo root)
 
 This script is for training only; evaluate with scripts/eval_yolo.py and
@@ -144,7 +144,7 @@ def main() -> None:
     ap.add_argument(
         "--seg-labels-dir",
         type=Path,
-        default=REPO_ROOT / "out" / "labels" / "seg_l",
+        default=REPO_ROOT / "out" / "labels" / "seg",
         help="SAM polygon labels (YOLO-seg format).",
     )
     ap.add_argument(
