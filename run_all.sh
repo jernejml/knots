@@ -19,6 +19,11 @@
 #   SKIP_TRAIN=1 ./run_all.sh   # reuse existing best.pt
 #
 # Requires Docker + NVIDIA Container Toolkit on the host (CUDA 12.8 base).
+#
+# The PyTorch stages (sam_polygons, train_yolo, export_onnx) need --ipc=host
+# so DataLoader workers can use the host's /dev/shm; the Docker default of
+# 64 MB causes the workers to crash with a 'bus error' once batches start
+# prefetching. Equivalent: --shm-size=8g (bounded but more explicit).
 
 set -euo pipefail
 
@@ -79,7 +84,7 @@ fi
 # --- 5. ONNX export ---------------------------------------------------------
 
 log "export to ONNX"
-docker run --rm --gpus all \
+docker run --rm --gpus all --ipc=host \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
     knots-train python3 scripts/export_onnx.py
