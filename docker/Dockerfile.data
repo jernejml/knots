@@ -6,7 +6,7 @@
 # Run:
 #   docker run --rm \
 #     -v "$PWD/data:/work/data:ro" \
-#     -v "$PWD/analysis:/work/analysis" \
+#     -v "$PWD/out:/work/out" \
 #     knots-data python3 scripts/analyze_dataset.py
 #
 #   docker run --rm \
@@ -17,13 +17,9 @@ FROM python:3.13-slim
 
 WORKDIR /work
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends make \
- && rm -rf /var/lib/apt/lists/* \
- && pip install --no-cache-dir \
+RUN pip install --no-cache-dir \
         numpy==2.4.2 \
         scipy==1.17.1 \
         Pillow==11.3.0
 
 COPY scripts/ ./scripts/
-COPY Makefile ./

@@ -24,28 +24,51 @@ inside `knots-infer` during `docker build` - no host toolchain needed.
 
 ## Run
 
-All generated artefacts (analysis CSVs, SAM labels, training runs, the
+All generated artefacts (analysis JSONs, SAM labels, training runs, the
 exported ONNX model, per-frame and per-board JSONs, visualisations) live
 under one ignored `out/` tree. The C++ inference path expects
-`out/models/best.onnx`, produced by the offline Python pipeline:
+`out/models/best.onnx`, produced by the offline Python pipeline.
+
+The simplest path is the top-level orchestrator, which chains every stage
+end-to-end on the default test split:
+
+```bash
+./run.sh                  # full pipeline
+SPLIT=val ./run.sh        # evaluate on val instead of test
+SKIP_TRAIN=1 ./run.sh     # reuse existing best.pt under out/runs/segment/
+```
+
+To drive a single stage by hand (useful for iteration), each script accepts
+`--config configs/default.toml` and standard CLI flags. The Python pipeline,
+in dependency order:
 
 ```bash
 docker run --rm \
   -v "$PWD/data:/work/data:ro" \
   -v "$PWD/out:/work/out" \
-  knots-data make all
+  knots-data python3 scripts/analyze_dataset.py
 
-docker run --rm --gpus all \
+docker run --rm \
+  -v "$PWD/data:/work/data:ro" \
+  -v "$PWD/out:/work/out" \
+  knots-data python3 scripts/board_features.py
+
+docker run --rm \
+  -v "$PWD/data:/work/data:ro" \
+  -v "$PWD/out:/work/out" \
+  knots-data python3 scripts/make_splits.py
+
+docker run --rm --gpus all --ipc=host \
   -v "$PWD/data:/work/data:ro" \
   -v "$PWD/out:/work/out" \
   knots-train python3 scripts/sam_polygons.py
 
-docker run --rm --gpus all \
+docker run --rm --gpus all --ipc=host \
   -v "$PWD/data:/work/data:ro" \
   -v "$PWD/out:/work/out" \
   knots-train python3 scripts/train_yolo.py
 
-docker run --rm --gpus all \
+docker run --rm --gpus all --ipc=host \
   -v "$PWD/data:/work/data:ro" \
   -v "$PWD/out:/work/out" \
   knots-train python3 scripts/export_onnx.py

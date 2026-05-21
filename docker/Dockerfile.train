@@ -26,10 +26,8 @@ FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime
 WORKDIR /work
 
 # libgl1 / libglib2.0-0 are required by opencv-python (headless Linux).
-# make is included so the existing Makefile targets work in this image too.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        make \
         libgl1 \
         libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/* \
@@ -39,4 +37,3 @@ RUN apt-get update \
         Pillow==11.3.0
 
 COPY scripts/ ./scripts/
-COPY Makefile ./

@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # End-to-end pipeline for the knots project.
 #
-# Runs the six stages on the default test split:
+# With no arguments, runs the full chain on the default test split:
 #   1. Build docker images (skipped if already present locally).
-#   2. Analyze dataset + stratified split.
-#   3. SAM2 polygon upgrade of the rectangle labels.
-#   4. YOLOv11-seg training.
-#   5. ONNX export.
-#   6. Test-mode evaluation (Mode B: model + images-dir + labels-dir).
+#   2. Analyse frames + annotations.
+#   3. Aggregate per-board features.
+#   4. Stratified train/val/test split.
+#   5. SAM2 polygon upgrade of the rectangle labels.
+#   6. YOLOv11-seg training.
+#   7. ONNX export.
+#   8. Test-mode evaluation (Mode B: model + images-dir + labels-dir).
 #
-# All artefacts land under ./out/. Re-runs are idempotent: scripts skip
-# work whose outputs already exist (see each script's --force flag for
-# how to override).
+# All artefacts land under ./out/. Re-runs are idempotent: each script skips
+# work whose outputs already exist (see each script's --force flag for how
+# to override).
 #
 # Usage:
-#   ./run_all.sh                # full pipeline, --split test
-#   SPLIT=val ./run_all.sh      # evaluate on val instead of test
-#   SKIP_TRAIN=1 ./run_all.sh   # reuse existing best.pt
+#   ./run.sh                  # full pipeline, --split test
+#   SPLIT=val ./run.sh        # evaluate on val instead of test
+#   SKIP_BUILD=1 ./run.sh     # don't even check whether images need building
+#   SKIP_TRAIN=1 ./run.sh     # reuse existing best.pt under out/runs/segment/
 #
 # Requires Docker + NVIDIA Container Toolkit on the host (CUDA 12.8 base).
 #
@@ -53,15 +56,27 @@ build_image knots-data  docker/Dockerfile.data
 build_image knots-train docker/Dockerfile.train
 build_image knots-infer docker/Dockerfile.infer
 
-# --- 2. Analysis + splits ---------------------------------------------------
+# --- 2-4. Analysis + per-board features + stratified split ------------------
 
-log "analyze dataset + build stratified split"
+log "analyse frames + annotations"
 docker run --rm \
     -v "$PWD/data:/work/data:ro" \
     -v "$PWD/out:/work/out" \
-    knots-data make all
+    knots-data python3 scripts/analyze_dataset.py
 
-# --- 3. SAM2 polygon upgrade ------------------------------------------------
+log "aggregate per-board features"
+docker run --rm \
+    -v "$PWD/data:/work/data:ro" \
+    -v "$PWD/out:/work/out" \
+    knots-data python3 scripts/board_features.py
+
+log "stratified train/val/test split"
+docker run --rm \
+    -v "$PWD/data:/work/data:ro" \
+    -v "$PWD/out:/work/out" \
+    knots-data python3 scripts/make_splits.py
+
+# --- 5. SAM2 polygon upgrade ------------------------------------------------
 
 log "SAM2 polygon upgrade (slow — minutes on GPU)"
 docker run --rm --gpus all --ipc=host \
@@ -69,7 +84,7 @@ docker run --rm --gpus all --ipc=host \
     -v "$PWD/out:/work/out" \
     knots-train python3 scripts/sam_polygons.py
 
-# --- 4. YOLO training -------------------------------------------------------
+# --- 6. YOLO training -------------------------------------------------------
 
 if [[ "$SKIP_TRAIN" == "1" ]]; then
     log "skip training (SKIP_TRAIN=1) — expects existing best.pt under out/runs/segment/"
@@ -81,7 +96,7 @@ else
         knots-train python3 scripts/train_yolo.py
 fi
 
-# --- 5. ONNX export ---------------------------------------------------------
+# --- 7. ONNX export ---------------------------------------------------------
 
 log "export to ONNX"
 docker run --rm --gpus all --ipc=host \
@@ -89,7 +104,7 @@ docker run --rm --gpus all --ipc=host \
     -v "$PWD/out:/work/out" \
     knots-train python3 scripts/export_onnx.py
 
-# --- 6. Test-mode evaluation ------------------------------------------------
+# --- 8. Test-mode evaluation ------------------------------------------------
 
 log "knots eval (Mode B): infer + GT-stitch + match in one pass, split=$SPLIT"
 docker run --rm --gpus all \
