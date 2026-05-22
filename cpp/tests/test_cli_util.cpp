@@ -36,77 +36,11 @@ TEST(ParseFrameStem, RejectsMalformed) {
     EXPECT_FALSE(knots::cli::ParseFrameStem("", board, frame));
 }
 
-// -- ParseBoardsList ---------------------------------------------------------
-
-TEST(ParseBoardsList, ParsesCommaSeparated) {
-    auto out = knots::cli::ParseBoardsList("1,2,3");
-    EXPECT_EQ(out.size(), 3u);
-    EXPECT_TRUE(out.count(1));
-    EXPECT_TRUE(out.count(2));
-    EXPECT_TRUE(out.count(3));
-}
-
-TEST(ParseBoardsList, DedupesRepeats) {
-    auto out = knots::cli::ParseBoardsList("1,1,2,2,2");
-    EXPECT_EQ(out.size(), 2u);
-}
-
-TEST(ParseBoardsList, SkipsMalformedTokens) {
-    // Silent on malformed — documented behaviour in the header.
-    auto out = knots::cli::ParseBoardsList("1,abc,3");
-    EXPECT_EQ(out.size(), 2u);
-    EXPECT_TRUE(out.count(1));
-    EXPECT_TRUE(out.count(3));
-}
-
-TEST(ParseBoardsList, EmptyStringReturnsEmpty) {
-    auto out = knots::cli::ParseBoardsList("");
-    EXPECT_TRUE(out.empty());
-}
-
-// -- ParseFramesList ---------------------------------------------------------
-
-TEST(ParseFramesList, TrimsWhitespace) {
-    auto out = knots::cli::ParseFramesList(" 0_5 , 100_3");
-    ASSERT_EQ(out.size(), 2u);
-    EXPECT_EQ(out[0], "0_5");
-    EXPECT_EQ(out[1], "100_3");
-}
-
-TEST(ParseFramesList, SkipsEmptyTokens) {
-    auto out = knots::cli::ParseFramesList("0_5,,100_3");
-    ASSERT_EQ(out.size(), 2u);
-    EXPECT_EQ(out[0], "0_5");
-    EXPECT_EQ(out[1], "100_3");
-}
-
-// -- SplitCsvLine ------------------------------------------------------------
-
-TEST(SplitCsvLine, Simple) {
-    auto cols = knots::cli::SplitCsvLine("a,b,c");
-    EXPECT_EQ(cols.size(), 3u);
-    EXPECT_EQ(cols[0], "a");
-    EXPECT_EQ(cols[1], "b");
-    EXPECT_EQ(cols[2], "c");
-}
-
-TEST(SplitCsvLine, QuotedFieldKeepsComma) {
-    auto cols = knots::cli::SplitCsvLine("a,\"b,c\",d");
-    ASSERT_EQ(cols.size(), 3u);
-    EXPECT_EQ(cols[0], "a");
-    EXPECT_EQ(cols[1], "b,c");  // quotes stripped, comma preserved
-    EXPECT_EQ(cols[2], "d");
-}
-
-TEST(SplitCsvLine, TrailingEmptyFieldPreserved) {
-    auto cols = knots::cli::SplitCsvLine("a,b,");
-    ASSERT_EQ(cols.size(), 3u);
-    EXPECT_EQ(cols[0], "a");
-    EXPECT_EQ(cols[1], "b");
-    EXPECT_EQ(cols[2], "");
-}
-
 // -- BuildBoardsFilter (the precedence-fix from item 1) ----------------------
+//
+// `boards` is the parsed vector from --boards (CLI11's `->delimiter(',')`
+// transform handles the CSV split, so BuildBoardsFilter no longer parses
+// strings). Tests pass the parsed form directly.
 
 namespace {
 
@@ -127,12 +61,12 @@ const std::string kThreeBoardSplits =
 }  // namespace
 
 TEST(BuildBoardsFilter, AllFlagsEmptyReturnsEmpty) {
-    auto f = knots::cli::BuildBoardsFilter("", "", "", "");
+    auto f = knots::cli::BuildBoardsFilter({}, "", "", "");
     EXPECT_TRUE(f.empty());
 }
 
-TEST(BuildBoardsFilter, OnlyBoardsCsvIsUsedDirectly) {
-    auto f = knots::cli::BuildBoardsFilter("1,2,3", "", "", "");
+TEST(BuildBoardsFilter, OnlyBoardsListIsUsedDirectly) {
+    auto f = knots::cli::BuildBoardsFilter({1, 2, 3}, "", "", "");
     EXPECT_EQ(f.size(), 3u);
     EXPECT_TRUE(f.count(1));
     EXPECT_TRUE(f.count(2));
@@ -141,17 +75,17 @@ TEST(BuildBoardsFilter, OnlyBoardsCsvIsUsedDirectly) {
 
 TEST(BuildBoardsFilter, OnlySplitsCsvReturnsThoseBoards) {
     auto csv = WriteTempSplitsCsv(kThreeBoardSplits);
-    auto f = knots::cli::BuildBoardsFilter("", "", csv, "test");
+    auto f = knots::cli::BuildBoardsFilter({}, "", csv, "test");
     EXPECT_EQ(f.size(), 2u);
     EXPECT_TRUE(f.count(2));
     EXPECT_TRUE(f.count(3));
     fs::remove(csv);
 }
 
-TEST(BuildBoardsFilter, BoardsCsvIntersectsWithSplit) {
+TEST(BuildBoardsFilter, BoardsListIntersectsWithSplit) {
     // --boards passes 1,2,3 — but --split test only has 2,3. Intersection = {2,3}.
     auto csv = WriteTempSplitsCsv(kThreeBoardSplits);
-    auto f = knots::cli::BuildBoardsFilter("1,2,3", "", csv, "test");
+    auto f = knots::cli::BuildBoardsFilter({1, 2, 3}, "", csv, "test");
     EXPECT_EQ(f.size(), 2u);
     EXPECT_TRUE(f.count(2));
     EXPECT_TRUE(f.count(3));
@@ -159,13 +93,13 @@ TEST(BuildBoardsFilter, BoardsCsvIntersectsWithSplit) {
     fs::remove(csv);
 }
 
-TEST(BuildBoardsFilter, BoardsCsvDisjointFromSplitEmptyIntersection) {
+TEST(BuildBoardsFilter, BoardsListDisjointFromSplitEmptyIntersection) {
     // --boards selects only board 1 (train); --split test → empty intersection.
     // Crucially, this is NOT the same as "no filter": the result is an
     // explicitly empty filter that should restrict everything downstream.
     // Documenting this behaviour so any future refactor preserves it.
     auto csv = WriteTempSplitsCsv(kThreeBoardSplits);
-    auto f = knots::cli::BuildBoardsFilter("1", "", csv, "test");
+    auto f = knots::cli::BuildBoardsFilter({1}, "", csv, "test");
     EXPECT_TRUE(f.empty());
     fs::remove(csv);
 }

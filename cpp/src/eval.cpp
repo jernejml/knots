@@ -6,20 +6,18 @@
 // Mode B (one-shot: infer + GT-stitch + compare in-process):
 //   knots eval --model M --images-dir I --labels-dir L [opts]
 //
-// The mode is auto-detected from which flags are set. The matching /
+// The mode is auto-detected from which flags are populated. The matching /
 // IoU / aggregate code is identical:
 //
 //   1. For each board, compute pairwise bbox IoU between prediction and GT
 //      polygons.
-//   2. Greedy-match at --match-iou (default 0.5): pop the highest-IoU pair,
-//      mark both sides as matched, repeat until no pair remains above
-//      threshold.
+//   2. Greedy-match at args.match_iou: pop the highest-IoU pair, mark both
+//      sides as matched, repeat until no pair remains above threshold.
 //   3. For each matched pair, compute mask IoU by rasterising both polygons
 //      onto a shared ROI mask via cv::fillPoly.
 //   4. Count TP / FP / FN; derive P / R / F1 and mean IoU.
 //
-// Per-board rows print to stdout; a JSON dump is written unless --no-write
-// is set.
+// Per-board rows print to stdout; a JSON dump is written unless no_write.
 //
 // Note on the GT side: GT polygons are derived from per-frame YOLO bboxes
 // projected and unioned by the same raster-union pipeline used for the
@@ -62,106 +60,20 @@ namespace {
 
 using BoardPolygons = std::pair<std::vector<Polygon>, std::vector<Polygon>>;  // (preds, gts)
 
-struct EvalArgs {
-    // Mode A
-    fs::path pred_dir;
-    fs::path gt_dir;
-
-    // Mode B
-    fs::path model;
-    fs::path images_dir;
-    fs::path labels_dir;
-    fs::path splits_csv;
-    std::string split;
-    float conf = 0.25f;
-    int stride_px = 320;
-    float simplify_eps_px = 1.0f;
-    bool prefer_cuda = true;
-
-    // Shared
-    fs::path out_json;
-    float match_iou = 0.5f;
-    std::string boards_csv;
-    fs::path boards_file;
-    bool no_write = false;
-};
-
 bool HasModeAFlags(const EvalArgs& a) {
     return !a.pred_dir.empty() || !a.gt_dir.empty();
 }
 
 bool HasModeBFlags(const EvalArgs& a) {
-    return !a.model.empty() || !a.images_dir.empty() || !a.labels_dir.empty();
+    return !a.inference.model.empty() || !a.images_dir.empty() || !a.labels_dir.empty();
 }
 
-void PrintUsage() {
-    std::cerr << "usage:\n"
-                 "  Mode A: knots eval --pred-dir P --gt-dir G [opts]\n"
-                 "  Mode B: knots eval --model M --images-dir I --labels-dir L [opts]\n"
-                 "\n"
-                 "Common:\n"
-                 "  --out PATH            JSON output path (default out/analysis/eval_boards.json)\n"
-                 "  --match-iou F         bbox IoU threshold for matching (default 0.5)\n"
-                 "  --boards LIST         comma-separated board IDs\n"
-                 "  --boards-file FILE    one board ID per line ('#' comments allowed)\n"
-                 "  --no-write            skip JSON output; print to stdout only\n"
-                 "\n"
-                 "Mode B only:\n"
-                 "  --splits-csv PATH     analysis/splits.csv\n"
-                 "  --split {train,val,test}\n"
-                 "  --conf C              confidence threshold (default 0.25)\n"
-                 "  --stride-px N         frame stride (default 320)\n"
-                 "  --simplify-eps F      approxPolyDP eps in board px (default 1.0)\n"
-                 "  --cpu                 force CPU execution provider\n";
-}
-
-bool ParseArgs(int argc, char** argv, EvalArgs& out) {
-    int i = 1;
-    while (i < argc) {
-        std::string a = argv[i];
-        if (a == "--pred-dir" && cli::RequireNext(a, i, argc)) {
-            out.pred_dir = argv[++i];
-        } else if (a == "--gt-dir" && cli::RequireNext(a, i, argc)) {
-            out.gt_dir = argv[++i];
-        } else if (a == "--model" && cli::RequireNext(a, i, argc)) {
-            out.model = argv[++i];
-        } else if (a == "--images-dir" && cli::RequireNext(a, i, argc)) {
-            out.images_dir = argv[++i];
-        } else if (a == "--labels-dir" && cli::RequireNext(a, i, argc)) {
-            out.labels_dir = argv[++i];
-        } else if (a == "--splits-csv" && cli::RequireNext(a, i, argc)) {
-            out.splits_csv = argv[++i];
-        } else if (a == "--split" && cli::RequireNext(a, i, argc)) {
-            out.split = argv[++i];
-        } else if (a == "--conf" && cli::RequireNext(a, i, argc)) {
-            out.conf = std::stof(argv[++i]);
-        } else if (a == "--stride-px" && cli::RequireNext(a, i, argc)) {
-            out.stride_px = std::stoi(argv[++i]);
-        } else if (a == "--simplify-eps" && cli::RequireNext(a, i, argc)) {
-            out.simplify_eps_px = std::stof(argv[++i]);
-        } else if (a == "--cpu") {
-            out.prefer_cuda = false;
-        } else if (a == "--out" && cli::RequireNext(a, i, argc)) {
-            out.out_json = argv[++i];
-        } else if (a == "--match-iou" && cli::RequireNext(a, i, argc)) {
-            out.match_iou = std::stof(argv[++i]);
-        } else if (a == "--boards" && cli::RequireNext(a, i, argc)) {
-            out.boards_csv = argv[++i];
-        } else if (a == "--boards-file" && cli::RequireNext(a, i, argc)) {
-            out.boards_file = argv[++i];
-        } else if (a == "--no-write") {
-            out.no_write = true;
-        } else if (a == "--help" || a == "-h") {
-            return false;
-        } else {
-            std::cerr << "unrecognised arg: " << a << "\n";
-            return false;
-        }
-        ++i;
-    }
-
-    const bool mode_a = HasModeAFlags(out);
-    const bool mode_b = HasModeBFlags(out);
+// CLI11 doesn't enforce mode-coherence (the two modes share an --out flag
+// and would clash if expressed as option groups), so the callback validates
+// here and returns a usage hint on failure.
+bool ValidateMode(const EvalArgs& a) {
+    const bool mode_a = HasModeAFlags(a);
+    const bool mode_b = HasModeBFlags(a);
     if (mode_a && mode_b) {
         std::cerr << "mode A (--pred-dir/--gt-dir) and mode B (--model/--images-dir/"
                      "--labels-dir) are mutually exclusive\n";
@@ -172,16 +84,12 @@ bool ParseArgs(int argc, char** argv, EvalArgs& out) {
                      "--images-dir + --labels-dir) is required\n";
         return false;
     }
-    if (mode_a && (out.pred_dir.empty() || out.gt_dir.empty())) {
+    if (mode_a && (a.pred_dir.empty() || a.gt_dir.empty())) {
         std::cerr << "Mode A requires both --pred-dir and --gt-dir\n";
         return false;
     }
-    if (mode_b && (out.model.empty() || out.images_dir.empty() || out.labels_dir.empty())) {
+    if (mode_b && (a.inference.model.empty() || a.images_dir.empty() || a.labels_dir.empty())) {
         std::cerr << "Mode B requires --model, --images-dir, and --labels-dir\n";
-        return false;
-    }
-    if (!out.splits_csv.empty() && out.split.empty()) {
-        std::cerr << "--splits-csv requires --split {train,val,test}\n";
         return false;
     }
     return true;
@@ -224,10 +132,6 @@ std::vector<Polygon> LoadBoardPolygonsFromJson(const fs::path& path) {
     return out;
 }
 
-// Geometry / matching primitives live in knots/geometry.{hpp,cpp} so the unit
-// tests can link against them without dragging in ORT / I/O. JSON formatters
-// for std::optional stay here.
-
 nlohmann::json OptToJson(std::optional<float> v) {
     if (!v) return nullptr;
     return *v;
@@ -253,8 +157,6 @@ struct BoardResult {
     float mean_iou;
     std::vector<float> matched_ious;
 };
-
-// -- Data collection ---------------------------------------------------------
 
 // Mode A: load per-board polygons from two directories of JSON.
 std::map<int, BoardPolygons> CollectModeAData(const EvalArgs& args) {
@@ -282,9 +184,8 @@ std::map<int, BoardPolygons> CollectModeAData(const EvalArgs& args) {
         std::cout << "warning: " << only_gt.size() << " board(s) in GT dir but not pred\n";
     }
 
-    std::unordered_set<int> filter;
-    if (!args.boards_csv.empty()) filter = cli::ParseBoardsList(args.boards_csv);
-    if (!args.boards_file.empty()) filter = cli::ParseBoardsFile(args.boards_file);
+    std::unordered_set<int> filter(args.boards.boards.begin(), args.boards.boards.end());
+    if (!args.boards.boards_file.empty()) filter = cli::ParseBoardsFile(args.boards.boards_file);
 
     std::map<int, BoardPolygons> data;
     for (int board : common) {
@@ -302,8 +203,8 @@ std::map<int, BoardPolygons> CollectModeAData(const EvalArgs& args) {
 std::map<int, BoardPolygons> CollectModeBData(const EvalArgs& args, std::string& ep_out,
                                               size_t& frames_total_out,
                                               pipeline::InferStats& stats_out) {
-    if (!fs::exists(args.model)) {
-        throw std::runtime_error("model not found: " + args.model.string());
+    if (!fs::exists(args.inference.model)) {
+        throw std::runtime_error("model not found: " + args.inference.model.string());
     }
     if (!fs::is_directory(args.images_dir)) {
         throw std::runtime_error("images dir not found: " + args.images_dir.string());
@@ -313,7 +214,8 @@ std::map<int, BoardPolygons> CollectModeBData(const EvalArgs& args, std::string&
     }
 
     const auto boards_filter = cli::BuildBoardsFilter(
-        args.boards_csv, args.boards_file, args.splits_csv, args.split);
+        args.boards.boards, args.boards.boards_file,
+        args.splits.splits_csv, args.splits.split);
 
     const auto by_board =
         pipeline::CollectFramesByBoard(args.labels_dir, ".txt", {}, boards_filter);
@@ -324,7 +226,7 @@ std::map<int, BoardPolygons> CollectModeBData(const EvalArgs& args, std::string&
     for (const auto& [_, frames] : by_board) frames_total_out += frames.size();
 
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "knots");
-    Ort::Session session = MakeSession(env, args.model, args.prefer_cuda, ep_out);
+    Ort::Session session = MakeSession(env, args.inference.model, !args.inference.cpu_only, ep_out);
 
     const size_t heartbeat = std::max<size_t>(20, frames_total_out / 20);
     size_t global_idx = 0;
@@ -337,14 +239,14 @@ std::map<int, BoardPolygons> CollectModeBData(const EvalArgs& args, std::string&
 
     std::map<int, BoardPolygons> data;
     for (const auto& [board, frames] : by_board) {
-        auto pred_fp = pipeline::InferBoardFrames(session, args.images_dir, frames, args.conf,
-                                                  stats_out, frame_done);
+        auto pred_fp = pipeline::InferBoardFrames(session, args.images_dir, frames,
+                                                  args.inference.conf, stats_out, frame_done);
         auto gt_fp = pipeline::LoadGtBoardFrames(args.labels_dir, args.images_dir, frames);
 
-        auto pred_sb =
-            StitchBoardPolygons(board, std::move(pred_fp), args.stride_px, args.simplify_eps_px);
-        auto gt_sb =
-            StitchBoardPolygons(board, std::move(gt_fp), args.stride_px, args.simplify_eps_px);
+        auto pred_sb = StitchBoardPolygons(board, std::move(pred_fp), args.stitch.stride_px,
+                                           args.stitch.simplify_eps_px);
+        auto gt_sb = StitchBoardPolygons(board, std::move(gt_fp), args.stitch.stride_px,
+                                         args.stitch.simplify_eps_px);
 
         data.emplace(board, BoardPolygons{std::move(pred_sb.polygons), std::move(gt_sb.polygons)});
     }
@@ -353,12 +255,9 @@ std::map<int, BoardPolygons> CollectModeBData(const EvalArgs& args, std::string&
 
 }  // namespace
 
-int CmdEval(int argc, char** argv) {
-    EvalArgs args;
-    if (!ParseArgs(argc, argv, args)) {
-        PrintUsage();
-        return 2;
-    }
+int CmdEval(const EvalArgs& args_in) {
+    if (!ValidateMode(args_in)) return 2;
+    EvalArgs args = args_in;
     if (args.out_json.empty()) {
         args.out_json = fs::path("out") / "analysis" / "eval_boards.json";
     }
@@ -384,8 +283,8 @@ int CmdEval(int argc, char** argv) {
         // Banner.
         if (mode_b) {
             std::cout << "knots eval (Mode B): " << data.size() << " board(s) / " << frames_total
-                      << " frame(s)  match-iou=" << args.match_iou << "  conf=" << args.conf
-                      << "  ep=" << ep << "\n"
+                      << " frame(s)  match-iou=" << args.match_iou
+                      << "  conf=" << args.inference.conf << "  ep=" << ep << "\n"
                       << "  images: " << args.images_dir.string() << "/\n"
                       << "  labels: " << args.labels_dir.string() << "/\n\n";
         } else {

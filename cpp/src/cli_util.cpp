@@ -2,20 +2,15 @@
 
 #include <algorithm>
 #include <fstream>
-#include <iostream>
 #include <regex>
-#include <sstream>
 
 namespace knots::cli {
 
-bool RequireNext(const std::string& flag, int i, int argc) {
-    if (i + 1 >= argc) {
-        std::cerr << "missing value for " << flag << "\n";
-        return false;
-    }
-    return true;
-}
+namespace {
 
+// CSV-line splitter that respects double-quoted fields. Trailing empty
+// fields are preserved. File-local because the only caller is the
+// splits.csv reader below; no caller outside this TU needs the helper.
 std::vector<std::string> SplitCsvLine(const std::string& line) {
     std::vector<std::string> fields;
     std::string cur;
@@ -33,6 +28,8 @@ std::vector<std::string> SplitCsvLine(const std::string& line) {
     fields.push_back(cur);
     return fields;
 }
+
+}  // namespace
 
 std::unordered_set<int> LoadBoardsInSplit(const std::filesystem::path& csv,
                                           const std::string& want) {
@@ -64,19 +61,6 @@ std::unordered_set<int> LoadBoardsInSplit(const std::filesystem::path& csv,
     return boards;
 }
 
-std::unordered_set<int> ParseBoardsList(const std::string& csv) {
-    std::unordered_set<int> out;
-    std::stringstream ss(csv);
-    std::string tok;
-    while (std::getline(ss, tok, ',')) {
-        try {
-            out.insert(std::stoi(tok));
-        } catch (...) {
-        }
-    }
-    return out;
-}
-
 std::unordered_set<int> ParseBoardsFile(const std::filesystem::path& p) {
     std::unordered_set<int> out;
     std::ifstream f(p);
@@ -90,19 +74,6 @@ std::unordered_set<int> ParseBoardsFile(const std::filesystem::path& p) {
             out.insert(std::stoi(line.substr(a)));
         } catch (...) {
         }
-    }
-    return out;
-}
-
-std::vector<std::string> ParseFramesList(const std::string& csv) {
-    std::vector<std::string> out;
-    std::stringstream ss(csv);
-    std::string tok;
-    while (std::getline(ss, tok, ',')) {
-        auto a = tok.find_first_not_of(" \t");
-        auto b = tok.find_last_not_of(" \t");
-        if (a == std::string::npos) continue;
-        out.push_back(tok.substr(a, b - a + 1));
     }
     return out;
 }
@@ -122,6 +93,16 @@ std::vector<std::string> ParseFramesFile(const std::filesystem::path& p) {
     return out;
 }
 
+std::vector<std::string> CollectExplicitStems(const std::vector<std::string>& frames,
+                                              const std::filesystem::path& frames_file) {
+    std::vector<std::string> out = frames;
+    if (!frames_file.empty()) {
+        auto from_file = ParseFramesFile(frames_file);
+        out.insert(out.end(), from_file.begin(), from_file.end());
+    }
+    return out;
+}
+
 bool ParseFrameStem(const std::string& stem, int& board, int& frame_idx) {
     static const std::regex re(R"(^(\d+)_(\d+)$)");
     std::smatch m;
@@ -135,12 +116,11 @@ bool ParseFrameStem(const std::string& stem, int& board, int& frame_idx) {
     }
 }
 
-std::unordered_set<int> BuildBoardsFilter(const std::string& boards_csv,
+std::unordered_set<int> BuildBoardsFilter(const std::vector<int>& boards,
                                           const std::filesystem::path& boards_file,
                                           const std::filesystem::path& splits_csv,
                                           const std::string& split) {
-    std::unordered_set<int> filter;
-    if (!boards_csv.empty()) filter = ParseBoardsList(boards_csv);
+    std::unordered_set<int> filter(boards.begin(), boards.end());
     if (!boards_file.empty()) filter = ParseBoardsFile(boards_file);
     if (!splits_csv.empty()) {
         auto split_boards = LoadBoardsInSplit(splits_csv, split);

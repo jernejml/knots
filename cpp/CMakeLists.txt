@@ -28,6 +28,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn)
 find_package(nlohmann_json REQUIRED)
+find_package(CLI11 REQUIRED)
 find_package(OnnxRuntime REQUIRED)
 
 add_executable(knots
@@ -40,6 +41,7 @@ add_executable(knots
     src/eval.cpp
     src/run.cpp
     src/cli_util.cpp
+    src/cli_options.cpp
     src/pipeline.cpp
     src/geometry.cpp
 )
@@ -52,6 +54,7 @@ target_link_libraries(knots PRIVATE
     OnnxRuntime::OnnxRuntime
     ${OpenCV_LIBS}
     nlohmann_json::nlohmann_json
+    CLI11::CLI11
 )
 
 target_compile_options(knots PRIVATE

@@ -1,48 +1,59 @@
 // knots — C++ pipeline for wood-knot polygon extraction.
 //
-// Subcommand dispatch. Two stages:
-//   knots infer    per-frame YOLO11-seg inference, writes one JSON per frame.
-//   knots stitch   reads per-frame JSONs, projects to board coordinates,
-//                  raster-unions overlapping polygons, writes one JSON per
-//                  board (the final per-board polygon list).
+// One CLI11 app, five subcommands. Per-subcommand option sets live in
+// cli_options.cpp; the actual work lives in run.cpp / infer.cpp / stitch.cpp
+// / gt_stitch.cpp / eval.cpp behind CmdXxx(args) entry points.
+//
+//   knots run         per-frame infer + per-board stitch (one-shot)
+//   knots infer       per-frame YOLO11-seg inference, one JSON per frame
+//   knots stitch      per-board raster-union from per-frame JSONs
+//   knots gt-stitch   per-board raster-union from per-frame YOLO GT bboxes
+//   knots eval        compare per-board predictions to GT (Mode A or B)
 
-#include <iostream>
-#include <string>
+#include <CLI/CLI.hpp>
 
+#include "knots/cli_options.hpp"
 #include "knots/commands.hpp"
 
-namespace {
-
-void PrintTopUsage(const char* prog) {
-    std::cerr << "usage: " << prog
-              << " <subcommand> [options]\n"
-                 "  run         one-shot: per-frame infer + per-board stitch\n"
-                 "  infer       per-frame YOLO11-seg inference\n"
-                 "  stitch      per-board raster-union of per-frame inference polygons\n"
-                 "  gt-stitch   per-board raster-union of per-frame GT bboxes\n"
-                 "  eval        test mode: compare per-board predictions to GT polygons\n"
-                 "Run `"
-              << prog << " <subcommand> --help` for subcommand-specific options.\n";
-}
-
-}  // namespace
-
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        PrintTopUsage(argv[0]);
-        return 2;
-    }
-    const std::string cmd = argv[1];
-    if (cmd == "run") return knots::CmdRun(argc - 1, argv + 1);
-    if (cmd == "infer") return knots::CmdInfer(argc - 1, argv + 1);
-    if (cmd == "stitch") return knots::CmdStitch(argc - 1, argv + 1);
-    if (cmd == "gt-stitch") return knots::CmdGtStitch(argc - 1, argv + 1);
-    if (cmd == "eval") return knots::CmdEval(argc - 1, argv + 1);
-    if (cmd == "-h" || cmd == "--help") {
-        PrintTopUsage(argv[0]);
-        return 0;
-    }
-    std::cerr << "unknown subcommand: " << cmd << "\n";
-    PrintTopUsage(argv[0]);
-    return 2;
+    CLI::App app{"knots — wood-knot polygon extraction"};
+    app.require_subcommand(1);
+    app.set_help_all_flag("--help-all", "expand help for all subcommands");
+
+    // One Args struct per subcommand; the matching callback fires after
+    // parse and forks into the corresponding CmdXxx implementation.
+    knots::RunArgs run_args;
+    auto* run = app.add_subcommand(
+        "run", "one-shot: per-frame infer + per-board stitch");
+    knots::cli::AddRunOptions(run, run_args);
+
+    knots::InferArgs infer_args;
+    auto* infer = app.add_subcommand("infer", "per-frame YOLO11-seg inference");
+    knots::cli::AddInferOptions(infer, infer_args);
+
+    knots::StitchArgs stitch_args;
+    auto* stitch = app.add_subcommand(
+        "stitch", "per-board raster-union of per-frame inference JSONs");
+    knots::cli::AddStitchOptions(stitch, stitch_args);
+
+    knots::GtStitchArgs gt_args;
+    auto* gt = app.add_subcommand(
+        "gt-stitch", "per-board raster-union of per-frame GT bboxes");
+    knots::cli::AddGtStitchOptions(gt, gt_args);
+
+    knots::EvalArgs eval_args;
+    auto* eval = app.add_subcommand(
+        "eval", "compare per-board predictions to GT polygons (Mode A or B)");
+    knots::cli::AddEvalOptions(eval, eval_args);
+
+    // Only the parsed subcommand's callback runs; `rc` holds its return code.
+    int rc = 0;
+    run->callback([&] { rc = knots::CmdRun(run_args); });
+    infer->callback([&] { rc = knots::CmdInfer(infer_args); });
+    stitch->callback([&] { rc = knots::CmdStitch(stitch_args); });
+    gt->callback([&] { rc = knots::CmdGtStitch(gt_args); });
+    eval->callback([&] { rc = knots::CmdEval(eval_args); });
+
+    CLI11_PARSE(app, argc, argv);
+    return rc;
 }

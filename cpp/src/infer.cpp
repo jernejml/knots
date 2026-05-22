@@ -1,31 +1,24 @@
 // `knots infer` — per-frame YOLOv11-seg inference.
 //
-// Bulk mode: take an input directory of frame PNGs, run YOLO11-seg through
-// ONNX Runtime on each, write one {frame_id}.json per frame to the output
-// directory. The ONNX session is created once and reused across all frames
-// (single CUDA warmup; no per-frame ORT init cost).
+// Walks args.input_dir of frame PNGs, runs YOLO11-seg through ONNX Runtime
+// on each, writes one {frame_id}.json per frame to args.output_dir. The
+// ONNX session is created once and reused across all frames (single CUDA
+// warmup; no per-frame ORT init cost).
 //
-// Filtering frames to process:
-//   - default: every {board}_{frame}.png in --input-dir
-//   - --frames LIST           comma-separated stems (e.g. "0_5,100_3")
-//   - --frames-file FILE      one stem per line ('#' comments allowed)
-//   - --splits-csv + --split  pick a split (train|val|test) from
-//                             analysis/splits.csv
+// Frame-selection knobs (FramesFilter + SplitsFilter) and inference knobs
+// are populated by cli_options::AddInferOptions before this function fires.
 //
 // Runs are resumable: frames whose JSON already exists are skipped unless
-// --force is passed.
+// args.force is true.
 
 #include <onnxruntime_cxx_api.h>
 
 #include <algorithm>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <opencv2/imgcodecs.hpp>
-#include <regex>
-#include <set>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -33,125 +26,13 @@
 #include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 #include "knots/inference.hpp"
+#include "knots/pipeline.hpp"
 
 namespace fs = std::filesystem;
 
 namespace knots {
 
 namespace {
-
-struct Args {
-    fs::path model;
-    fs::path input_dir;
-    fs::path output_dir;
-    std::string frames_csv;
-    fs::path frames_file;
-    fs::path splits_csv;
-    std::string split;
-    float conf = 0.25f;
-    bool prefer_cuda = true;
-    bool force = false;
-};
-
-void PrintUsage() {
-    std::cerr << "usage: knots infer --model M --input-dir IN --output-dir OUT [opts]\n"
-                 "  --frames LIST            comma-separated frame stems, e.g. 0_5,100_3\n"
-                 "  --frames-file FILE       one frame stem per line\n"
-                 "  --splits-csv PATH        analysis/splits.csv\n"
-                 "  --split {train,val,test} with --splits-csv: restrict to this split\n"
-                 "  --conf C                 confidence threshold (default 0.25)\n"
-                 "  --cpu                    force CPU execution provider\n"
-                 "  --force                  overwrite existing outputs\n";
-}
-
-bool ParseArgs(int argc, char** argv, Args& out) {
-    int i = 1;  // skip subcommand name
-    while (i < argc) {
-        std::string a = argv[i];
-        if (a == "--model" && cli::RequireNext(a, i, argc)) {
-            out.model = argv[++i];
-        } else if (a == "--input-dir" && cli::RequireNext(a, i, argc)) {
-            out.input_dir = argv[++i];
-        } else if (a == "--output-dir" && cli::RequireNext(a, i, argc)) {
-            out.output_dir = argv[++i];
-        } else if (a == "--frames" && cli::RequireNext(a, i, argc)) {
-            out.frames_csv = argv[++i];
-        } else if (a == "--frames-file" && cli::RequireNext(a, i, argc)) {
-            out.frames_file = argv[++i];
-        } else if (a == "--splits-csv" && cli::RequireNext(a, i, argc)) {
-            out.splits_csv = argv[++i];
-        } else if (a == "--split" && cli::RequireNext(a, i, argc)) {
-            out.split = argv[++i];
-        } else if (a == "--conf" && cli::RequireNext(a, i, argc)) {
-            out.conf = std::stof(argv[++i]);
-        } else if (a == "--cpu") {
-            out.prefer_cuda = false;
-        } else if (a == "--force") {
-            out.force = true;
-        } else if (a == "--help" || a == "-h") {
-            return false;
-        } else {
-            std::cerr << "unrecognised arg: " << a << "\n";
-            return false;
-        }
-        ++i;
-    }
-    if (out.model.empty() || out.input_dir.empty() || out.output_dir.empty()) {
-        std::cerr << "--model, --input-dir, --output-dir are required\n";
-        return false;
-    }
-    if (!out.splits_csv.empty() && out.split.empty()) {
-        std::cerr << "--splits-csv requires --split {train,val,test}\n";
-        return false;
-    }
-    return true;
-}
-
-const std::regex kFrameFileRe(R"(^(\d+)_(\d+)\.png$)");
-
-std::vector<std::string> CollectFrameStems(const Args& args) {
-    std::vector<std::string> explicit_stems;
-    if (!args.frames_csv.empty()) {
-        explicit_stems = cli::ParseFramesList(args.frames_csv);
-    }
-    if (!args.frames_file.empty()) {
-        auto from_file = cli::ParseFramesFile(args.frames_file);
-        explicit_stems.insert(explicit_stems.end(), from_file.begin(), from_file.end());
-    }
-    std::unordered_set<int> boards_filter;
-    if (!args.splits_csv.empty()) {
-        boards_filter = cli::LoadBoardsInSplit(args.splits_csv, args.split);
-        if (boards_filter.empty()) {
-            std::cerr << "warning: no boards match split " << args.split << " in "
-                      << args.splits_csv << "\n";
-        }
-    }
-    std::set<std::string> dedup;
-    if (!explicit_stems.empty()) {
-        for (const auto& s : explicit_stems) {
-            int b = -1, fi = -1;
-            if (!cli::ParseFrameStem(s, b, fi)) {
-                std::cerr << "warning: unrecognised frame stem: " << s << "\n";
-                continue;
-            }
-            if (!boards_filter.empty() && !boards_filter.count(b)) continue;
-            dedup.insert(s);
-        }
-    } else {
-        for (const auto& entry : fs::directory_iterator(args.input_dir)) {
-            if (!entry.is_regular_file()) continue;
-            std::string fname = entry.path().filename().string();
-            std::smatch m;
-            if (!std::regex_match(fname, m, kFrameFileRe)) continue;
-            std::string stem = entry.path().stem().string();
-            int b = -1, fi = -1;
-            if (!cli::ParseFrameStem(stem, b, fi)) continue;
-            if (!boards_filter.empty() && !boards_filter.count(b)) continue;
-            dedup.insert(stem);
-        }
-    }
-    return {dedup.begin(), dedup.end()};
-}
 
 void WriteJson(const fs::path& out_path, const std::string& frame_id, const cv::Mat& image,
                const std::string& ep, float conf, const std::vector<Detection>& dets) {
@@ -179,14 +60,9 @@ void WriteJson(const fs::path& out_path, const std::string& frame_id, const cv::
 
 }  // namespace
 
-int CmdInfer(int argc, char** argv) {
-    Args args;
-    if (!ParseArgs(argc, argv, args)) {
-        PrintUsage();
-        return 2;
-    }
-    if (!fs::exists(args.model)) {
-        std::cerr << "model not found: " << args.model << "\n";
+int CmdInfer(const InferArgs& args) {
+    if (!fs::exists(args.inference.model)) {
+        std::cerr << "model not found: " << args.inference.model << "\n";
         return 1;
     }
     if (!fs::is_directory(args.input_dir)) {
@@ -196,7 +72,24 @@ int CmdInfer(int argc, char** argv) {
     fs::create_directories(args.output_dir);
 
     try {
-        const auto stems = CollectFrameStems(args);
+        const auto explicit_stems =
+            cli::CollectExplicitStems(args.frames.frames, args.frames.frames_file);
+        std::unordered_set<int> boards_filter;
+        if (!args.splits.splits_csv.empty()) {
+            boards_filter = cli::LoadBoardsInSplit(args.splits.splits_csv, args.splits.split);
+            if (boards_filter.empty()) {
+                std::cerr << "warning: no boards match split " << args.splits.split << " in "
+                          << args.splits.splits_csv << "\n";
+            }
+        }
+        const auto by_board =
+            pipeline::CollectFramesByBoard(args.input_dir, ".png", explicit_stems, boards_filter);
+
+        // Flatten to a deterministic stems list (board-major, frame-minor).
+        std::vector<std::string> stems;
+        for (const auto& [_, frames] : by_board) {
+            for (const auto& [__, stem] : frames) stems.push_back(stem);
+        }
         if (stems.empty()) {
             std::cerr << "no frames to process\n";
             return 0;
@@ -204,11 +97,12 @@ int CmdInfer(int argc, char** argv) {
 
         Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "knots");
         std::string ep;
-        Ort::Session session = MakeSession(env, args.model, args.prefer_cuda, ep);
+        Ort::Session session =
+            MakeSession(env, args.inference.model, !args.inference.cpu_only, ep);
 
         std::cerr << "knots infer: " << stems.size() << " frame(s)  ep=" << ep
-                  << "  conf=" << args.conf << "  force=" << (args.force ? "true" : "false")
-                  << "\n";
+                  << "  conf=" << args.inference.conf
+                  << "  force=" << (args.force ? "true" : "false") << "\n";
 
         const size_t heartbeat = std::max<size_t>(20, stems.size() / 20);
         size_t processed = 0, skipped = 0, errors = 0, total_dets = 0;
@@ -229,8 +123,8 @@ int CmdInfer(int argc, char** argv) {
                 continue;
             }
             try {
-                auto dets = InferFrame(session, image, args.conf);
-                WriteJson(out_path, stem, image, ep, args.conf, dets);
+                auto dets = InferFrame(session, image, args.inference.conf);
+                WriteJson(out_path, stem, image, ep, args.inference.conf, dets);
                 total_dets += dets.size();
                 ++processed;
             } catch (const std::exception& e) {

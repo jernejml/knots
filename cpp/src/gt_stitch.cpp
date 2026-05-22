@@ -1,17 +1,13 @@
 // `knots gt-stitch` — per-board GT polygon stitching from per-frame bbox labels.
 //
-// Reads YOLO bbox labels (cls cx cy w h) from --labels-dir, projects each bbox
-// as a 4-vertex rectangle, translates by (frame_idx * stride_px, 0), and uses
-// the SAME raster-union pipeline as `knots stitch` so prediction and GT
-// per-board polygons are bit-identical when the inputs match.
+// Reads YOLO bbox labels (cls cx cy w h) from args.labels_dir, projects each
+// bbox as a 4-vertex rectangle, translates by (frame_idx * stride_px, 0),
+// and uses the SAME raster-union pipeline as `knots stitch` so prediction
+// and GT per-board polygons are bit-identical when the inputs match.
 //
-// Frame dimensions are read from --images-dir (frame width/height needed to
-// denormalise YOLO coords). All frames within a board should have the same
-// height in this dataset; the stitcher warns if they don't.
-//
-// Optional filtering:
-//   --boards LIST | --boards-file FILE
-//   --splits-csv PATH + --split {train,val,test}
+// Frame dimensions are read from args.images_dir (frame width/height needed
+// to denormalise YOLO coords). All frames within a board should have the
+// same height in this dataset; the stitcher warns if they don't.
 
 #include <filesystem>
 #include <iostream>
@@ -28,86 +24,7 @@ namespace fs = std::filesystem;
 
 namespace knots {
 
-namespace {
-
-struct GtStitchArgs {
-    fs::path labels_dir;
-    fs::path images_dir;
-    fs::path output_dir;
-    int stride_px = 320;
-    float simplify_eps_px = 1.0f;
-    std::string boards_csv;
-    fs::path boards_file;
-    fs::path splits_csv;
-    std::string split;
-    bool force = false;
-};
-
-void PrintUsage() {
-    std::cerr << "usage: knots gt-stitch --labels-dir L --images-dir I --output-dir O [opts]\n"
-                 "  --labels-dir DIR         YOLO bbox labels (per-frame .txt)\n"
-                 "  --images-dir DIR         frame PNGs (for frame dimensions)\n"
-                 "  --output-dir DIR         per-board GT JSONs\n"
-                 "  --stride-px N            frame stride (default 320)\n"
-                 "  --simplify-eps F         approxPolyDP eps in board px (default 1.0)\n"
-                 "  --boards LIST            comma-separated board IDs to restrict to\n"
-                 "  --boards-file FILE       one board ID per line ('#' comments allowed)\n"
-                 "  --splits-csv PATH        analysis/splits.csv\n"
-                 "  --split {train,val,test} with --splits-csv: pick boards in this split\n"
-                 "  --force                  overwrite existing outputs\n";
-}
-
-bool ParseArgs(int argc, char** argv, GtStitchArgs& out) {
-    int i = 1;
-    while (i < argc) {
-        std::string a = argv[i];
-        if (a == "--labels-dir" && cli::RequireNext(a, i, argc)) {
-            out.labels_dir = argv[++i];
-        } else if (a == "--images-dir" && cli::RequireNext(a, i, argc)) {
-            out.images_dir = argv[++i];
-        } else if (a == "--output-dir" && cli::RequireNext(a, i, argc)) {
-            out.output_dir = argv[++i];
-        } else if (a == "--stride-px" && cli::RequireNext(a, i, argc)) {
-            out.stride_px = std::stoi(argv[++i]);
-        } else if (a == "--simplify-eps" && cli::RequireNext(a, i, argc)) {
-            out.simplify_eps_px = std::stof(argv[++i]);
-        } else if (a == "--boards" && cli::RequireNext(a, i, argc)) {
-            out.boards_csv = argv[++i];
-        } else if (a == "--boards-file" && cli::RequireNext(a, i, argc)) {
-            out.boards_file = argv[++i];
-        } else if (a == "--splits-csv" && cli::RequireNext(a, i, argc)) {
-            out.splits_csv = argv[++i];
-        } else if (a == "--split" && cli::RequireNext(a, i, argc)) {
-            out.split = argv[++i];
-        } else if (a == "--force") {
-            out.force = true;
-        } else if (a == "--help" || a == "-h") {
-            return false;
-        } else {
-            std::cerr << "unrecognised arg: " << a << "\n";
-            return false;
-        }
-        ++i;
-    }
-    if (out.labels_dir.empty() || out.images_dir.empty() || out.output_dir.empty()) {
-        std::cerr << "--labels-dir, --images-dir, --output-dir are required\n";
-        return false;
-    }
-    if (!out.splits_csv.empty() && out.split.empty()) {
-        std::cerr << "--splits-csv requires --split {train,val,test}\n";
-        return false;
-    }
-    return true;
-}
-
-}  // namespace
-
-int CmdGtStitch(int argc, char** argv) {
-    GtStitchArgs args;
-    if (!ParseArgs(argc, argv, args)) {
-        PrintUsage();
-        return 2;
-    }
+int CmdGtStitch(const GtStitchArgs& args) {
     if (!fs::is_directory(args.labels_dir)) {
         std::cerr << "labels dir not found: " << args.labels_dir << "\n";
         return 1;
@@ -120,14 +37,15 @@ int CmdGtStitch(int argc, char** argv) {
 
     try {
         const auto boards_filter = cli::BuildBoardsFilter(
-            args.boards_csv, args.boards_file, args.splits_csv, args.split);
+            args.boards.boards, args.boards.boards_file,
+            args.splits.splits_csv, args.splits.split);
 
         const auto by_board =
             pipeline::CollectFramesByBoard(args.labels_dir, ".txt", {}, boards_filter);
 
         std::cerr << "knots gt-stitch: " << by_board.size() << " board(s)"
-                  << "  stride=" << args.stride_px << "  force=" << (args.force ? "true" : "false")
-                  << "\n";
+                  << "  stride=" << args.stitch.stride_px
+                  << "  force=" << (args.force ? "true" : "false") << "\n";
 
         size_t n_boards_out = 0, n_skipped = 0, total_polys = 0;
         for (const auto& [board, frames] : by_board) {
@@ -141,8 +59,8 @@ int CmdGtStitch(int argc, char** argv) {
                 pipeline::LoadGtBoardFrames(args.labels_dir, args.images_dir, frames);
             if (fp_list.empty()) continue;
 
-            total_polys += StitchBoardToJson(board, std::move(fp_list), args.stride_px,
-                                             args.simplify_eps_px, out_path);
+            total_polys += StitchBoardToJson(board, std::move(fp_list), args.stitch.stride_px,
+                                             args.stitch.simplify_eps_px, out_path);
             ++n_boards_out;
         }
 
