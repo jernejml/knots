@@ -54,7 +54,7 @@ from stage_util import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STAGE = "prepare"
-FRAME_RE = re.compile(r"^(\d+)_(\d+)\.png$")
+FRAME_RE = re.compile(r"^(?P<board>\d+)_(?P<frame>\d+)\.png$")
 SPLIT_NAMES = ("train", "val", "test")
 
 
