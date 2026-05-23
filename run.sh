@@ -4,9 +4,7 @@
 # Stages (canonical order):
 #   clean      wipe out/, cpp/build/, host Python caches
 #   nuke       clean + docker image rm knots-{data,train,infer}
-#   analyze    analyze_dataset.py                [knots-data]
-#   features   board_features.py                 [knots-data]
-#   split      make_splits.py                    [knots-data]
+#   prepare    prepare.py (board partitions)     [knots-data]
 #   sam        sam_polygons.py                   [knots-train, GPU]
 #   train      train_yolo.py                     [knots-train, GPU]
 #   export     export_onnx.py                    [knots-train, GPU]
@@ -100,15 +98,13 @@ TRAIN_NAME_ARGS=()
 
 # Canonical order. clean/nuke run before any pipeline work; `all` expands to
 # the pipeline subset only (you have to ask for clean/nuke explicitly).
-PIPELINE_STAGES=(analyze features split sam train export infer gt viz eval)
+PIPELINE_STAGES=(prepare sam train export infer gt viz eval)
 ALL_STAGES=(clean nuke "${PIPELINE_STAGES[@]}")
 
 # Map each pipeline stage to the docker image it needs. clean/nuke don't
 # have entries here; the image-build loop guards against missing keys.
 declare -A STAGE_IMAGE=(
-    [analyze]=knots-data
-    [features]=knots-data
-    [split]=knots-data
+    [prepare]=knots-data
     [sam]=knots-train
     [train]=knots-train
     [export]=knots-train
@@ -171,31 +167,13 @@ stage_nuke() {
     docker image rm -f "${NUKE_IMAGES[@]}" 2>/dev/null || true
 }
 
-stage_analyze() {
-    log "analyze frames + annotations"
+stage_prepare() {
+    log "prepare: stratified board partitions → out/analysis/partitions.json"
     docker run --rm \
         -v "$PWD/data:/work/data:ro" \
         -v "$PWD/out:/work/out" \
         -v "$PWD/configs:/work/configs:ro" \
-        knots-data python3 scripts/analyze_dataset.py "${CONFIG_ARGS[@]}"
-}
-
-stage_features() {
-    log "aggregate per-board features"
-    docker run --rm \
-        -v "$PWD/data:/work/data:ro" \
-        -v "$PWD/out:/work/out" \
-        -v "$PWD/configs:/work/configs:ro" \
-        knots-data python3 scripts/board_features.py "${CONFIG_ARGS[@]}"
-}
-
-stage_split() {
-    log "stratified train/val/test split"
-    docker run --rm \
-        -v "$PWD/data:/work/data:ro" \
-        -v "$PWD/out:/work/out" \
-        -v "$PWD/configs:/work/configs:ro" \
-        knots-data python3 scripts/make_splits.py "${CONFIG_ARGS[@]}"
+        knots-data python3 scripts/prepare.py "${CONFIG_ARGS[@]}"
 }
 
 stage_sam() {
@@ -232,7 +210,7 @@ stage_infer() {
     # default 'all' is what the brief asks for.
     local splits_args=()
     if [[ "$SPLIT" != "all" ]]; then
-        splits_args=(--splits-csv /work/out/analysis/splits.csv --split "$SPLIT")
+        splits_args=(--partitions-json /work/out/analysis/partitions.json --split "$SPLIT")
     fi
     log "knots run: per-frame inference + per-board stitching, split=$SPLIT"
     docker run --rm --gpus all \
@@ -253,7 +231,7 @@ stage_gt() {
     # comparable. No GPU needed — `knots gt-stitch` is pure CV+IO.
     local splits_args=()
     if [[ "$SPLIT" != "all" ]]; then
-        splits_args=(--splits-csv /work/out/analysis/splits.csv --split "$SPLIT")
+        splits_args=(--partitions-json /work/out/analysis/partitions.json --split "$SPLIT")
     fi
     log "knots gt-stitch: per-board GT polygons, split=$SPLIT"
     docker run --rm \
@@ -321,9 +299,7 @@ Usage: ./run.sh [STAGE ...]
 Stages (canonical order; tokens may be given in any order on the command line):
   clean      wipe out/, cpp/build/, host Python caches
   nuke       clean + docker image rm knots-{data,train,infer}
-  analyze    analyze_dataset.py                [knots-data]
-  features   board_features.py                 [knots-data]
-  split      make_splits.py                    [knots-data]
+  prepare    prepare.py (board partitions)     [knots-data]
   sam        sam_polygons.py                   [knots-train, GPU]
   train      train_yolo.py                     [knots-train, GPU]
   export     export_onnx.py                    [knots-train, GPU]
@@ -357,7 +333,7 @@ else
         case "$arg" in
             -h|--help) print_help; exit 0 ;;
             all) for s in "${PIPELINE_STAGES[@]}"; do want["$s"]=1; done ;;
-            clean|nuke|analyze|features|split|sam|train|export|infer|gt|viz|eval)
+            clean|nuke|prepare|sam|train|export|infer|gt|viz|eval)
                 want["$arg"]=1 ;;
             *) echo "unknown stage: $arg" >&2; echo >&2; print_help >&2; exit 2 ;;
         esac
