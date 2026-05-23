@@ -28,7 +28,7 @@ level split would leak knots between train/val/test.
 Reproducibility: same --seed + same inputs + same flags ⇒ identical output.
 
 For richer per-frame / per-annotation inspection (geometry, darkness,
-edge-touch counts, size buckets, contrast), see scripts/inspect_dataset.py
+edge-touch counts, size buckets, contrast), see scripts/tools/inspect_dataset.py
 — a manual debug tool, not part of the pipeline.
 """
 

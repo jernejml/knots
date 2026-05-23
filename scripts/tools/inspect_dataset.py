@@ -22,7 +22,7 @@ Math salvaged from the deleted analyze_dataset.py.
 Run inside the knots-data image:
 
     docker run --rm -v "$PWD/data:/work/data:ro" knots-data \\
-        python3 scripts/inspect_dataset.py --board 23
+        python3 scripts/tools/inspect_dataset.py --board 23
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 FRAME_RE = re.compile(r"^(?P<board>\d+)_(?P<frame>\d+)\.png$")
 
 

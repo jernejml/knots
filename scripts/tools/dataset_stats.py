@@ -18,11 +18,15 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from stage_util import (
+# Sibling pipeline scripts in scripts/ own stage_util; we're one level deeper.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from stage_util import (  # noqa: E402  (sys.path bump must precede this)
     add_config_arg,
     apply_config_defaults,
     load_config_section,

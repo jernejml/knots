@@ -12,7 +12,7 @@ Staging layout:
         labels/   (symlinks into out/labels/seg/)
         train.txt val.txt test.txt   (paths relative to repo root)
 
-This script is for training only; evaluate with scripts/eval_yolo.py and
+This script is for training only; evaluate with scripts/tools/eval_yolo.py and
 export ONNX with scripts/export_onnx.py.
 
 Augmentation: ultralytics defaults. Pass augmentation kwargs via the

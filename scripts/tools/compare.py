@@ -38,7 +38,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 STRIDE_PX_DEFAULT = 320
 FRAME_RE = re.compile(r"^(\d+)_(\d+)\.png$")
