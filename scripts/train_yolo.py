@@ -58,17 +58,21 @@ def ensure_symlink(link: Path, target: Path) -> None:
     link.symlink_to(rel_target)
 
 
-def load_board_splits(splits_csv: Path) -> dict[int, str]:
-    """Parse out/analysis/splits.csv → {board: split}."""
-    if not splits_csv.is_file():
-        raise SystemExit(f"missing {splits_csv}; run scripts/make_splits.py first.")
+def load_board_splits(partitions_json: Path) -> dict[int, str]:
+    """Parse out/analysis/partitions.json → {board: split}.
+
+    File shape is {"train": [board_ids], "val": [...], "test": [...]};
+    we invert it to a per-board lookup for the staging pass below.
+    """
+    if not partitions_json.is_file():
+        raise SystemExit(f"missing {partitions_json}; run scripts/prepare.py first.")
+    data = json.loads(partitions_json.read_text())
     out: dict[int, str] = {}
-    with splits_csv.open() as fh:
-        for row in csv.DictReader(fh):
-            split = row["split"].strip()
-            if split not in VALID_SPLITS:
-                raise SystemExit(f"unexpected split {split!r} in {splits_csv}")
-            out[int(row["board"])] = split
+    for split, board_ids in data.items():
+        if split not in VALID_SPLITS:
+            raise SystemExit(f"unexpected split {split!r} in {partitions_json}")
+        for bid in board_ids:
+            out[int(bid)] = split
     return out
 
 
@@ -80,7 +84,7 @@ def build_staging(args: argparse.Namespace) -> Path:
     if not seg_dir.is_dir():
         raise SystemExit(f"{seg_dir} not found.")
 
-    board_to_split = load_board_splits(args.splits_csv)
+    board_to_split = load_board_splits(args.partitions_json)
 
     args.staging_dir.mkdir(parents=True, exist_ok=True)
     images_link_dir = args.staging_dir / "images"
@@ -132,7 +136,7 @@ def build_staging(args: argparse.Namespace) -> Path:
     if n_no_label:
         print(f"  WARN: {n_no_label} frame(s) missing in {rel_to_root(seg_dir)}/ — skipped")
     if n_no_split:
-        print(f"  WARN: {n_no_split} frame(s) whose board is not in splits.csv — skipped")
+        print(f"  WARN: {n_no_split} frame(s) whose board is not in partitions.json — skipped")
     print(
         f"  train={len(by_split['train'])}  val={len(by_split['val'])}  test={len(by_split['test'])}"
     )
@@ -164,10 +168,10 @@ def main() -> None:
         help="SAM polygon labels (YOLO-seg format).",
     )
     ap.add_argument(
-        "--splits-csv",
+        "--partitions-json",
         type=Path,
-        default=REPO_ROOT / "out" / "analysis" / "splits.csv",
-        help="Board-level split assignment from make_splits.py.",
+        default=REPO_ROOT / "out" / "analysis" / "partitions.json",
+        help="Board-level split assignment from prepare.py.",
     )
     ap.add_argument(
         "--staging-dir",
