@@ -91,11 +91,11 @@ docker run --rm --gpus all \
 ```
 Training (offline)
 
-  analyze ──► features ──► split ─┐
-                                  │
-  data/labels/ ──► sam ───────────┤
-                                  ▼
-                                train ──► export ──► out/models/best.onnx
+  data/{images,labels}/ ──► prepare ─┐
+                                     │
+  data/labels/ ──► sam ──────────────┤
+                                     ▼
+                                   train ──► export ──► out/models/best.onnx
 
 
 Runtime (uses out/models/best.onnx)
@@ -111,11 +111,9 @@ Runtime (uses out/models/best.onnx)
 
 Stages at a glance:
 
-- `analyze`   per-frame measurements (geometry, contrast, edge-touching)
-- `features`  aggregates the per-frame numbers into per-board summaries
-- `split`     train / val / test partition, stratified, by board not by
-              frame (frame-level would leak knots between splits because
-              of the 50 % overlap)
+- `prepare`   stratified train / val / test partition of boards, written
+              to `out/analysis/partitions.json`. By board, not by frame —
+              the 50 % overlap would otherwise leak knots between splits.
 - `sam`       SAM2 turns bbox labels into polygon labels
 - `train`     YOLOv11-seg fine-tuning on those polygons
 - `export`    `best.pt` → `best.onnx`
@@ -134,13 +132,13 @@ per-board polygons. No inference at eval time, no GPU.
 
 | Image | Base / contents | Used by stages |
 |---|---|---|
-| `knots-data` | Python 3.13 slim + NumPy / SciPy / Pillow | analyze, features, split, viz |
+| `knots-data` | Python 3.13 slim + NumPy / SciPy / Pillow | prepare, viz |
 | `knots-train` | PyTorch 2.7 + CUDA 12.8 + Ultralytics (YOLO + SAM2) | sam, train, export |
 | `knots-infer` | CUDA 12.8 + cuDNN + ONNX Runtime GPU + the `knots` C++ binary | infer, gt, eval |
 
 ### Generated artefacts (`out/`)
 
-- `out/analysis/` — per-frame / per-board / split JSONs
+- `out/analysis/` — `partitions.json` (board → train/val/test) + `run_meta_prepare.json`
 - `out/runs/segment/<name>/` — weights, ONNX, `run_meta_*.json`, eval JSON
 - `out/models/best.onnx` — symlink to the latest export
 - `out/boards/pred/` — per-board predicted polygons
