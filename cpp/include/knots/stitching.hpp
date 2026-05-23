@@ -39,7 +39,7 @@ StitchedBoard StitchBoardPolygons(int board, std::vector<FramePolys> frames, int
                                   float simplify_eps_px);
 
 // Convenience wrapper: stitches + writes the JSON described in
-// knots/stitch.cpp (board, board_height, board_width, stride_px, knots[]).
+// knots/cmd_stitch.cpp (board, board_height, board_width, stride_px, knots[]).
 // Returns the count of knots written.
 size_t StitchBoardToJson(int board, std::vector<FramePolys> frames, int stride_px,
                          float simplify_eps_px, const std::filesystem::path& out_path);

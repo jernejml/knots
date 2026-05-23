@@ -1,8 +1,9 @@
 // knots — C++ pipeline for wood-knot polygon extraction.
 //
 // One CLI11 app, five subcommands. Per-subcommand option sets live in
-// cli_options.cpp; the actual work lives in run.cpp / infer.cpp / stitch.cpp
-// / gt_stitch.cpp / eval.cpp behind CmdXxx(args) entry points.
+// cli_options.cpp; the actual work lives in cmd_run.cpp / cmd_infer.cpp /
+// cmd_stitch.cpp / cmd_gt_stitch.cpp / cmd_eval.cpp behind CmdXxx(args) entry
+// points.
 //
 //   knots run         per-frame infer + per-board stitch (one-shot)
 //   knots infer       per-frame YOLO11-seg inference, one JSON per frame
