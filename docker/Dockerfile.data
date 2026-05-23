@@ -1,4 +1,4 @@
-# Data-preprocessing image: dataset stats and per-frame analysis.
+# Data-preprocessing image: board partitions, board overlays, dataset stats.
 #
 # Build (from repo root, so `scripts/` is in the build context):
 #   docker build -f docker/Dockerfile.data -t knots-data .
@@ -7,11 +7,7 @@
 #   docker run --rm \
 #     -v "$PWD/data:/work/data:ro" \
 #     -v "$PWD/out:/work/out" \
-#     knots-data python3 scripts/analyze_dataset.py
-#
-#   docker run --rm \
-#     -v "$PWD/data:/work/data:ro" \
-#     knots-data python3 scripts/dataset_stats.py --sort gaps --order desc
+#     knots-data python3 scripts/prepare.py
 
 FROM python:3.13-slim
 

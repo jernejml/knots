@@ -1,9 +1,9 @@
 """Shared per-stage plumbing: TOML config loading, wall-time timing, run metadata.
 
-Each pipeline script (analyze_dataset, make_splits, sam_polygons, train_yolo,
-export_onnx, eval_yolo) reads its inputs from a `[<stage>]` TOML section, runs
-its work inside a `stage_timer(...)` block, and dumps a `run_meta.json` next
-to its output artefacts. CLI flags continue to override config values, so the
+Each pipeline script (prepare, sam_polygons, train_yolo, export_onnx) reads
+its inputs from a `[<stage>]` TOML section, runs its work inside a
+`stage_timer(...)` block, and dumps a `run_meta.json` next to its output
+artefacts. CLI flags continue to override config values, so the
 quick-iteration loop "edit a number on the command line" still works.
 
 Wiring pattern (see scripts/train_yolo.py for the worked example):
@@ -153,8 +153,7 @@ def save_run_meta(
 ) -> Path:
     """Dump resolved args + timing + git SHA to `out_dir/run_meta_<stage>.json`.
 
-    Stage suffix avoids clobbering when multiple stages share an output dir
-    (analyze_dataset / board_features / make_splits all write to out/analysis/).
+    Stage suffix avoids clobbering when multiple stages share an output dir.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
