@@ -9,26 +9,12 @@
 # Sections you don't recognise are ignored: one shared config can drive many
 # stages, or you can write narrow per-stage variants.
 
-[analyze_dataset]
-bg_max            = 30
-row_bright_frac   = 0.5
-dark_wood_max     = 120
-min_chroma        = 15
-bucket_thresholds = "0.25,1,4"
-near_T_min_px     = 5.0
-near_T_rel        = 0.25
-edge_touch_tol_px = 1.0
-
-[board_features]
-sort  = "frames"
-order = "asc"
-limit = 20
-
-[make_splits]
+[prepare]
 seed             = 42
 ratios           = "80,10,10"
 min_frames_train = 3
-audit_threshold  = 0.20
+near_T_min_px    = 5.0
+near_T_rel       = 0.25
 # Repeatable --stratify flag: TOML list of strings, each parsed by argparse.
 stratify         = ["frames:10,23", "cluster_frac:0"]
 
