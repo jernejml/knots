@@ -11,7 +11,7 @@
 #   infer      knots run (per-board polygons)    [knots-infer, GPU]
 #   gt         knots gt-stitch (per-board GT)    [knots-infer]
 #   viz        stitched board overlays (JPEG)    [knots-data]
-#   eval       knots eval (Mode A: metrics)      [knots-infer]
+#   eval       knots eval (metrics)              [knots-infer]
 #
 # infer and eval map to the two task-brief deliverables: infer produces
 # "polygon bounds of all knots on each individual board" (writes
@@ -20,8 +20,8 @@
 # latest train run, or under out/analysis/ if there isn't one).
 #
 # eval consumes the per-board JSONs that infer (out/boards/pred/) and gt
-# (out/boards/gt/) write, via `knots eval` Mode A. So inference runs exactly
-# once per pipeline pass and eval is cheap (seconds, no GPU). The catch:
+# (out/boards/gt/) write. Inference runs exactly once per pipeline pass and
+# eval is cheap (seconds, no GPU). The catch:
 # ./run.sh eval alone fails unless both upstream stages have run — use
 # ./run.sh infer gt eval, or ./run.sh all.
 #
@@ -261,10 +261,10 @@ stage_viz() {
 }
 
 stage_eval() {
-    # Mode A: compare out/boards/pred/ (from `infer`) with out/boards/gt/
-    # (from `gt`). No model, no inference, no GPU — just bbox match + mask
-    # IoU on the already-stitched per-board JSONs. Cheap; safe to re-run
-    # while tweaking thresholds.
+    # Compare out/boards/pred/ (from `infer`) with out/boards/gt/ (from `gt`).
+    # No model, no inference, no GPU — just bbox match + mask IoU on the
+    # already-stitched per-board JSONs. Cheap; safe to re-run while tweaking
+    # thresholds.
     #
     # Locate the training run dir so the eval JSON co-locates with the
     # weights/ONNX/run_meta_*.json files. If nothing's there, eval falls
@@ -275,7 +275,7 @@ stage_eval() {
         eval_out_args=(--out "/work/${run_dir}/eval_boards.json")
     fi
 
-    log "knots eval (Mode A): compare out/boards/pred and out/boards/gt"
+    log "knots eval: compare out/boards/pred and out/boards/gt"
     docker run --rm \
         -v "$PWD/out:/work/out" \
         knots-infer knots eval \
@@ -306,7 +306,7 @@ Stages (canonical order; tokens may be given in any order on the command line):
   infer      knots run (per-board polygons)    [knots-infer, GPU]
   gt         knots gt-stitch (per-board GT)    [knots-infer]
   viz        stitched board overlays (JPEG)    [knots-data]
-  eval       knots eval (Mode A: metrics)      [knots-infer]
+  eval       knots eval (metrics)              [knots-infer]
   all        every pipeline stage above (also the default with no args)
 
 Examples:

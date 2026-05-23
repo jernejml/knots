@@ -124,9 +124,9 @@ Stages at a glance:
 - `viz`       per-board JPEG with pred (green) and GT (red) overlays
 - `eval`      precision / recall / F1 / IoU comparing pred vs GT
 
-`infer` and `gt` are independent. `eval` consumes both via `knots eval`
-Mode A — bbox-IoU greedy matching + per-pair mask IoU on the cached
-per-board polygons. No inference at eval time, no GPU.
+`infer` and `gt` are independent. `eval` consumes both: bbox-IoU greedy
+matching + per-pair mask IoU on the cached per-board polygons. No inference
+at eval time, no GPU.
 
 ### Docker images
 
