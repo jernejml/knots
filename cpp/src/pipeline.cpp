@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <regex>
 #include <sstream>
@@ -17,6 +18,34 @@ namespace fs = std::filesystem;
 namespace knots::pipeline {
 
 namespace {
+
+// Write a per-frame JSON next to the source frame. Schema matches what
+// LoadBoardFromFrameJsons consumes: image_size + a list of detections each
+// carrying bbox / confidence / class / polygon. The bbox/conf/class are
+// informational (the stitching path uses only the polygon) but live here
+// for debug consumers.
+void WritePerFrameJson(const fs::path& out_path, const std::string& stem,
+                       int img_w, int img_h, const std::string& session_ep,
+                       float conf_threshold, const std::vector<Detection>& dets) {
+    nlohmann::json j;
+    j["frame"] = stem;
+    j["image_size"] = {img_w, img_h};
+    j["session_ep"] = session_ep;
+    j["conf_threshold"] = conf_threshold;
+    j["detections"] = nlohmann::json::array();
+    for (const auto& d : dets) {
+        nlohmann::json jd;
+        jd["bbox"] = {d.bbox.x, d.bbox.y, d.bbox.x + d.bbox.width, d.bbox.y + d.bbox.height};
+        jd["confidence"] = d.confidence;
+        jd["class"] = d.cls;
+        nlohmann::json poly = nlohmann::json::array();
+        for (const auto& p : d.polygon) poly.push_back({p.x, p.y});
+        jd["polygon"] = poly;
+        j["detections"].push_back(std::move(jd));
+    }
+    std::ofstream f(out_path);
+    f << j.dump(2);
+}
 
 // Parse YOLO bboxes from a label file; emit each as a 4-vertex rectangle
 // polygon in frame-local pixel coords, clipped to image bounds.
@@ -93,7 +122,9 @@ FramesByBoard CollectFramesByBoard(const fs::path& dir, const std::string& exten
 
 std::vector<FramePolys> InferBoardFrames(Ort::Session& session, const fs::path& images_dir,
                                          const BoardFrames& frames, float conf_threshold,
-                                         InferStats& stats, FrameDoneFn frame_done) {
+                                         InferStats& stats, FrameDoneFn frame_done,
+                                         const fs::path& dump_per_frame_dir,
+                                         const std::string& session_ep) {
     std::vector<FramePolys> out;
     out.reserve(frames.size());
     for (const auto& [frame_idx, stem] : frames) {
@@ -110,6 +141,10 @@ std::vector<FramePolys> InferBoardFrames(Ort::Session& session, const fs::path& 
             auto dets = InferFrame(session, image, conf_threshold);
             const auto t1 = std::chrono::steady_clock::now();
             stats.total_inference_sec += std::chrono::duration<double>(t1 - t0).count();
+            if (!dump_per_frame_dir.empty()) {
+                WritePerFrameJson(dump_per_frame_dir / (stem + ".json"), stem,
+                                  image.cols, image.rows, session_ep, conf_threshold, dets);
+            }
             FramePolys fp;
             fp.frame_idx = frame_idx;
             fp.width = image.cols;
@@ -126,6 +161,44 @@ std::vector<FramePolys> InferBoardFrames(Ort::Session& session, const fs::path& 
             std::cerr << "  WARN inference failed for " << stem << ": " << e.what() << "\n";
             ++stats.failed;
         }
+        if (frame_done) frame_done();
+    }
+    return out;
+}
+
+std::vector<FramePolys> LoadBoardFromFrameJsons(const fs::path& jsons_dir,
+                                                const BoardFrames& frames,
+                                                FrameDoneFn frame_done) {
+    std::vector<FramePolys> out;
+    out.reserve(frames.size());
+    for (const auto& [frame_idx, stem] : frames) {
+        fs::path j_path = jsons_dir / (stem + ".json");
+        nlohmann::json j;
+        try {
+            std::ifstream f(j_path);
+            if (!f) {
+                std::cerr << "  WARN missing frame JSON: " << j_path << "\n";
+                if (frame_done) frame_done();
+                continue;
+            }
+            f >> j;
+        } catch (const std::exception& e) {
+            std::cerr << "  WARN cannot parse " << j_path << ": " << e.what() << "\n";
+            if (frame_done) frame_done();
+            continue;
+        }
+        FramePolys fp;
+        fp.frame_idx = frame_idx;
+        fp.width = j["image_size"][0].get<int>();
+        fp.height = j["image_size"][1].get<int>();
+        for (const auto& det : j["detections"]) {
+            std::vector<cv::Point> poly;
+            for (const auto& pt : det["polygon"]) {
+                poly.emplace_back(pt[0].get<int>(), pt[1].get<int>());
+            }
+            if (poly.size() >= 3) fp.polygons.push_back(std::move(poly));
+        }
+        out.push_back(std::move(fp));
         if (frame_done) frame_done();
     }
     return out;

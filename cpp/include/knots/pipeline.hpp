@@ -1,8 +1,8 @@
 #pragma once
 
-// Shared per-board inference / GT-load loops used by `knots run`,
-// `knots gt-stitch`, and `knots eval` (Mode B). Each function operates on
-// one board's frames and returns FramePolys ready for StitchBoardPolygons.
+// Shared per-board inference / GT-load loops used by `knots run` and
+// `knots gt-stitch`. Each function operates on one board's frames and
+// returns FramePolys ready for StitchBoardPolygons.
 
 #include <onnxruntime_cxx_api.h>
 
@@ -54,10 +54,24 @@ using FrameDoneFn = std::function<void()>;
 // Unread or inference-failed frames bump the corresponding counter in
 // `stats` and are skipped. `frame_done` (if non-null) is called once per
 // frame regardless of outcome.
+//
+// If `dump_per_frame_dir` is non-empty, a per-frame JSON is also written
+// to `<dump_per_frame_dir>/<stem>.json`. `session_ep` and `conf_threshold`
+// are recorded in the JSON for traceability.
 std::vector<FramePolys> InferBoardFrames(Ort::Session& session,
                                          const std::filesystem::path& images_dir,
                                          const BoardFrames& frames, float conf_threshold,
-                                         InferStats& stats, FrameDoneFn frame_done = {});
+                                         InferStats& stats, FrameDoneFn frame_done = {},
+                                         const std::filesystem::path& dump_per_frame_dir = {},
+                                         const std::string& session_ep = {});
+
+// For each frame in `frames`, read {jsons_dir}/{stem}.json (written earlier
+// by InferBoardFrames with dump_per_frame_dir set) and rehydrate FramePolys
+// from the `image_size` + per-detection `polygon` fields. Frames whose JSON
+// is missing or unparseable are warned and skipped.
+std::vector<FramePolys> LoadBoardFromFrameJsons(const std::filesystem::path& jsons_dir,
+                                                const BoardFrames& frames,
+                                                FrameDoneFn frame_done = {});
 
 // For each frame in `frames`, imread (for dimensions) then parse YOLO
 // bboxes from {labels_dir}/{stem}.txt, projecting each as a 4-vertex

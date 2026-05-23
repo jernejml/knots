@@ -70,22 +70,14 @@ struct RunArgs {
     SplitsFilter splits;
     std::filesystem::path input_dir;
     std::filesystem::path output_dir;
-    bool force = false;
-};
-
-struct InferArgs {
-    InferenceOpts inference;
-    FramesFilter frames;
-    SplitsFilter splits;
-    std::filesystem::path input_dir;
-    std::filesystem::path output_dir;
-    bool force = false;
-};
-
-struct StitchArgs {
-    StitchOpts stitch;
-    std::filesystem::path input_dir;
-    std::filesystem::path output_dir;
+    // --dump-per-frame DIR: also write one {stem}.json per frame to DIR
+    // (the cached inference output, useful for re-stitching with different
+    // params). Empty = skip.
+    std::filesystem::path dump_per_frame_dir;
+    // --from-frame-jsons DIR: skip inference; read per-frame JSONs from DIR
+    // instead. Mutually exclusive with --dump-per-frame and makes --model /
+    // --input-dir optional. Empty = run inference as usual.
+    std::filesystem::path from_frame_jsons_dir;
     bool force = false;
 };
 
@@ -100,18 +92,8 @@ struct GtStitchArgs {
 };
 
 struct EvalArgs {
-    // Mode A: compare two dirs of stitched per-board JSONs.
-    std::filesystem::path pred_dir;
-    std::filesystem::path gt_dir;
-
-    // Mode B: in-process infer + GT-stitch + compare.
-    InferenceOpts inference;
-    StitchOpts stitch;
-    SplitsFilter splits;
-    std::filesystem::path images_dir;
-    std::filesystem::path labels_dir;
-
-    // Shared.
+    std::filesystem::path pred_dir;   // required: per-board prediction JSONs
+    std::filesystem::path gt_dir;     // required: per-board GT JSONs
     BoardsFilter boards;
     std::filesystem::path out_json;
     float match_iou = 0.5f;
@@ -120,29 +102,21 @@ struct EvalArgs {
 
 // -- Entry points ------------------------------------------------------------
 
-// One-shot pipeline: per-frame inference + per-board stitching in one pass.
-// Groups frames by board, infers each frame, raster-unions the per-frame
-// polygons into one {board}.json. No intermediate per-frame JSON.
+// Per-board pipeline. Default: walks --input-dir of frame PNGs, runs YOLO11-seg
+// through ONNX Runtime per frame, raster-unions the per-frame polygons into
+// one {board}.json. Two debug flags:
+//   --dump-per-frame DIR     also write per-frame inference JSONs
+//   --from-frame-jsons DIR   skip inference; read per-frame JSONs from DIR
 int CmdRun(const RunArgs& args);
-
-// Per-frame inference: walks input dir of PNGs, runs YOLO11-seg through
-// ONNX Runtime, writes one {frame}.json per frame.
-int CmdInfer(const InferArgs& args);
-
-// Per-board stitching: reads per-frame JSONs (output by CmdInfer), translates
-// each polygon by `frame_idx * stride_px`, rasterises onto a board-sized
-// mask, extracts merged contours, writes one {board}.json per board.
-int CmdStitch(const StitchArgs& args);
 
 // Per-board ground-truth stitching: reads per-frame YOLO bboxes from
 // --labels-dir, projects each bbox as a 4-vertex rectangle, runs the same
-// raster-union pipeline as CmdStitch. Output format matches CmdStitch.
+// raster-union pipeline as CmdRun's stitcher. Output format matches CmdRun.
 int CmdGtStitch(const GtStitchArgs& args);
 
 // Test mode: greedy bbox-IoU matching + per-pair mask IoU, P/R/F1 plus
 // extras (FP) and missing (FN). Prints a per-board table and writes an
-// aggregate JSON. Mode A consumes stitched dirs; Mode B runs inference
-// in-process. The mode is implicit from which flags are populated.
+// aggregate JSON. Consumes two dirs of stitched per-board JSONs.
 int CmdEval(const EvalArgs& args);
 
 }  // namespace knots

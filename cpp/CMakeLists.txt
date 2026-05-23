@@ -33,13 +33,11 @@ find_package(OnnxRuntime REQUIRED)
 
 add_executable(knots
     src/main.cpp
-    src/cmd_infer.cpp
-    src/cmd_stitch.cpp
+    src/cmd_run.cpp
     src/cmd_gt_stitch.cpp
+    src/cmd_eval.cpp
     src/stitching.cpp
     src/inference.cpp
-    src/cmd_eval.cpp
-    src/cmd_run.cpp
     src/cli_util.cpp
     src/cli_options.cpp
     src/pipeline.cpp

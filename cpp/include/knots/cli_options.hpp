@@ -31,8 +31,6 @@ void AddFramesFilterOpts(CLI::App* app, FramesFilter& f);
 // Per-subcommand assemblies: one call sets up every flag the subcommand
 // accepts, including required positional/option flags and defaults.
 void AddRunOptions(CLI::App* app, RunArgs& args);
-void AddInferOptions(CLI::App* app, InferArgs& args);
-void AddStitchOptions(CLI::App* app, StitchArgs& args);
 void AddGtStitchOptions(CLI::App* app, GtStitchArgs& args);
 void AddEvalOptions(CLI::App* app, EvalArgs& args);
 

@@ -2,8 +2,8 @@
 //
 // Reads YOLO bbox labels (cls cx cy w h) from args.labels_dir, projects each
 // bbox as a 4-vertex rectangle, translates by (frame_idx * stride_px, 0),
-// and uses the SAME raster-union pipeline as `knots stitch` so prediction
-// and GT per-board polygons are bit-identical when the inputs match.
+// and uses the SAME StitchBoardPolygons primitive as `knots run` so
+// prediction and GT per-board polygons are bit-identical when inputs match.
 //
 // Frame dimensions are read from args.images_dir (frame width/height needed
 // to denormalise YOLO coords). All frames within a board should have the

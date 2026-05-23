@@ -31,7 +31,7 @@ bool ParseFrameStem(const std::string& stem, int& board, int& frame_idx);
 
 // Build the combined explicit-stems list from --frames + --frames-file. The
 // file (if non-empty) is appended to the CLI list; result is the order
-// `knots run`/`knots infer` pass to CollectFramesByBoard.
+// `knots run` passes to CollectFramesByBoard.
 std::vector<std::string> CollectExplicitStems(const std::vector<std::string>& frames,
                                               const std::filesystem::path& frames_file);
 
@@ -45,8 +45,7 @@ std::vector<std::string> CollectExplicitStems(const std::vector<std::string>& fr
 //   3. Empty result means "no filter" (all boards admitted) — only when no
 //      flag was passed; an explicit but empty intersection is still empty.
 //
-// Used by `knots eval` (Mode B) and `knots gt-stitch` so the same flags mean
-// the same thing in both.
+// Used by `knots gt-stitch`.
 std::unordered_set<int> BuildBoardsFilter(const std::vector<int>& boards,
                                           const std::filesystem::path& boards_file,
                                           const std::filesystem::path& partitions_json,

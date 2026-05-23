@@ -1,23 +1,32 @@
-// `knots run` — one-shot pipeline: per-frame inference + per-board stitching.
+// `knots run` — per-board pipeline.
 //
-// Walks args.input_dir of frame PNGs, groups them by board, and for each
-// board runs YOLO11-seg inference on every frame then raster-unions the
-// per-frame polygons into a single {board}.json. No intermediate per-frame
-// JSON is written — predictions live in memory only.
+// Default flow: walks args.input_dir of frame PNGs, groups them by board,
+// runs YOLO11-seg inference on every frame, raster-unions the per-frame
+// polygons into one {board}.json.
+//
+// Two debug flags shift the data source:
+//   --dump-per-frame DIR     also write the per-frame inference JSON used to
+//                            be `knots infer`'s output. Stitch still runs in
+//                            memory in the same pass.
+//   --from-frame-jsons DIR   skip inference; read per-frame JSONs from DIR
+//                            (typically a previous --dump-per-frame DIR) and
+//                            stitch from those. Used to be `knots stitch`.
+//                            --model / --input-dir are not required in this
+//                            mode.
 //
 // Frame-selection knobs (FramesFilter + SplitsFilter) and inference /
 // stitching knobs are populated by cli_options::AddRunOptions before this
 // function is invoked from main's callback.
 //
 // Resume: a board whose {board}.json already exists is skipped (its frames
-// are not even loaded) unless --force is passed. For finer-grained resume
-// (per-frame), use `knots infer` + `knots stitch` separately.
+// are not even processed) unless --force is passed.
 
 #include <onnxruntime_cxx_api.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -33,29 +42,56 @@ namespace fs = std::filesystem;
 namespace knots {
 
 int CmdRun(const RunArgs& args) {
-    if (!fs::exists(args.inference.model)) {
-        std::cerr << "model not found: " << args.inference.model << "\n";
-        return 1;
-    }
-    if (!fs::is_directory(args.input_dir)) {
-        std::cerr << "input dir not found: " << args.input_dir << "\n";
-        return 1;
+    const bool from_cache = !args.from_frame_jsons_dir.empty();
+
+    // -- Argument validation, conditional on which source is in use --
+    if (from_cache) {
+        if (!fs::is_directory(args.from_frame_jsons_dir)) {
+            std::cerr << "--from-frame-jsons dir not found: "
+                      << args.from_frame_jsons_dir << "\n";
+            return 1;
+        }
+    } else {
+        if (args.inference.model.empty()) {
+            std::cerr << "--model is required unless --from-frame-jsons is set\n";
+            return 1;
+        }
+        if (!fs::exists(args.inference.model)) {
+            std::cerr << "model not found: " << args.inference.model << "\n";
+            return 1;
+        }
+        if (args.input_dir.empty()) {
+            std::cerr << "--input-dir is required unless --from-frame-jsons is set\n";
+            return 1;
+        }
+        if (!fs::is_directory(args.input_dir)) {
+            std::cerr << "input dir not found: " << args.input_dir << "\n";
+            return 1;
+        }
     }
     fs::create_directories(args.output_dir);
+    if (!args.dump_per_frame_dir.empty()) {
+        fs::create_directories(args.dump_per_frame_dir);
+    }
 
     try {
         const auto explicit_stems =
             cli::CollectExplicitStems(args.frames.frames, args.frames.frames_file);
         std::unordered_set<int> boards_filter;
         if (!args.splits.partitions_json.empty()) {
-            boards_filter = cli::LoadBoardsInSplit(args.splits.partitions_json, args.splits.split);
+            boards_filter =
+                cli::LoadBoardsInSplit(args.splits.partitions_json, args.splits.split);
             if (boards_filter.empty()) {
                 std::cerr << "warning: no boards match split " << args.splits.split << " in "
                           << args.splits.partitions_json << "\n";
             }
         }
+
+        // From-cache scans the JSON dir; default scans the image dir.
+        const fs::path& scan_dir = from_cache ? args.from_frame_jsons_dir : args.input_dir;
+        const std::string scan_ext = from_cache ? ".json" : ".png";
         const auto by_board =
-            pipeline::CollectFramesByBoard(args.input_dir, ".png", explicit_stems, boards_filter);
+            pipeline::CollectFramesByBoard(scan_dir, scan_ext, explicit_stems, boards_filter);
         if (by_board.empty()) {
             std::cerr << "no frames to process\n";
             return 0;
@@ -63,15 +99,29 @@ int CmdRun(const RunArgs& args) {
         size_t total_frames = 0;
         for (const auto& [_, frames] : by_board) total_frames += frames.size();
 
-        Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "knots");
-        std::string ep;
-        Ort::Session session =
-            MakeSession(env, args.inference.model, !args.inference.cpu_only, ep);
+        // ORT session is only created when we actually need to infer.
+        std::optional<Ort::Env> env;
+        std::optional<Ort::Session> session;
+        std::string ep = "n/a";
+        if (!from_cache) {
+            env.emplace(ORT_LOGGING_LEVEL_WARNING, "knots");
+            session.emplace(MakeSession(*env, args.inference.model,
+                                        !args.inference.cpu_only, ep));
+        }
 
-        std::cerr << "knots run: " << by_board.size() << " board(s) / " << total_frames
-                  << " frame(s)  ep=" << ep << "  conf=" << args.inference.conf
-                  << "  stride=" << args.stitch.stride_px
-                  << "  force=" << (args.force ? "true" : "false") << "\n";
+        std::cerr << "knots run"
+                  << (from_cache ? " (from-cache)" : "")
+                  << ": " << by_board.size() << " board(s) / " << total_frames
+                  << " frame(s)";
+        if (!from_cache) {
+            std::cerr << "  ep=" << ep << "  conf=" << args.inference.conf;
+        }
+        std::cerr << "  stride=" << args.stitch.stride_px
+                  << "  force=" << (args.force ? "true" : "false");
+        if (!args.dump_per_frame_dir.empty()) {
+            std::cerr << "  dump=" << args.dump_per_frame_dir;
+        }
+        std::cerr << "\n";
 
         size_t n_boards_out = 0, n_boards_skipped = 0;
         size_t total_knots = 0;
@@ -93,8 +143,15 @@ int CmdRun(const RunArgs& args) {
                 continue;
             }
 
-            auto fp_list = pipeline::InferBoardFrames(session, args.input_dir, frames,
-                                                     args.inference.conf, infer_stats, frame_done);
+            std::vector<FramePolys> fp_list;
+            if (from_cache) {
+                fp_list = pipeline::LoadBoardFromFrameJsons(args.from_frame_jsons_dir,
+                                                            frames, frame_done);
+            } else {
+                fp_list = pipeline::InferBoardFrames(*session, args.input_dir, frames,
+                                                    args.inference.conf, infer_stats,
+                                                    frame_done, args.dump_per_frame_dir, ep);
+            }
             if (fp_list.empty()) {
                 std::cerr << "  WARN board " << board << ": no usable frames, skipping stitch\n";
                 continue;
@@ -106,10 +163,13 @@ int CmdRun(const RunArgs& args) {
 
         std::cerr << "\nResult\n"
                   << "  boards: written=" << n_boards_out << "  skipped=" << n_boards_skipped
-                  << "\n"
-                  << "  frames: processed=" << infer_stats.processed
-                  << "  unread=" << infer_stats.unread << "  failed=" << infer_stats.failed << "\n"
-                  << "  total per-board polygons=" << total_knots << "\n"
+                  << "\n";
+        if (!from_cache) {
+            std::cerr << "  frames: processed=" << infer_stats.processed
+                      << "  unread=" << infer_stats.unread
+                      << "  failed=" << infer_stats.failed << "\n";
+        }
+        std::cerr << "  total per-board polygons=" << total_knots << "\n"
                   << "  output dir: " << args.output_dir << "\n";
     } catch (const Ort::Exception& e) {
         std::cerr << "ONNX error: " << e.what() << "\n";

@@ -5,7 +5,9 @@
 namespace knots::cli {
 
 void AddInferenceOpts(CLI::App* app, InferenceOpts& opts) {
-    app->add_option("--model", opts.model, "ONNX model path")->required();
+    // Not ->required(): RunArgs validates conditionally — when
+    // --from-frame-jsons is set, no inference happens and no model is needed.
+    app->add_option("--model", opts.model, "ONNX model path");
     app->add_option("--conf", opts.conf, "confidence threshold")
         ->capture_default_str();
     app->add_flag("--cpu", opts.cpu_only, "force CPU execution provider");
@@ -50,34 +52,24 @@ void AddFramesFilterOpts(CLI::App* app, FramesFilter& f) {
 
 void AddRunOptions(CLI::App* app, RunArgs& args) {
     AddInferenceOpts(app, args.inference);
-    app->add_option("--input-dir", args.input_dir, "frame PNGs")->required();
+    // Not ->required(): when --from-frame-jsons is set we read per-frame
+    // JSONs directly and never touch images. Conditional validation in CmdRun.
+    app->add_option("--input-dir", args.input_dir, "frame PNGs");
     app->add_option("--output-dir", args.output_dir, "per-board JSON outputs")
         ->required();
     AddFramesFilterOpts(app, args.frames);
     AddSplitsFilterOpts(app, args.splits);
     AddStitchOpts(app, args.stitch);
+
+    auto* dump = app->add_option("--dump-per-frame", args.dump_per_frame_dir,
+                                 "also write one {stem}.json per frame to DIR");
+    auto* from = app->add_option(
+        "--from-frame-jsons", args.from_frame_jsons_dir,
+        "skip inference; read per-frame JSONs from DIR (debug / re-stitch)");
+    // Reading cached frames AND re-dumping them is meaningless; force a choice.
+    dump->excludes(from);
+
     app->add_flag("--force", args.force, "overwrite existing per-board outputs");
-}
-
-void AddInferOptions(CLI::App* app, InferArgs& args) {
-    AddInferenceOpts(app, args.inference);
-    app->add_option("--input-dir", args.input_dir, "frame PNGs")->required();
-    app->add_option("--output-dir", args.output_dir, "per-frame JSON outputs")
-        ->required();
-    AddFramesFilterOpts(app, args.frames);
-    AddSplitsFilterOpts(app, args.splits);
-    app->add_flag("--force", args.force, "overwrite existing outputs");
-}
-
-void AddStitchOptions(CLI::App* app, StitchArgs& args) {
-    app->add_option("--input-dir", args.input_dir,
-                    "per-frame JSONs from `knots infer`")
-        ->required();
-    app->add_option("--output-dir", args.output_dir,
-                    "per-board JSONs (one .json per board)")
-        ->required();
-    AddStitchOpts(app, args.stitch);
-    app->add_flag("--force", args.force, "overwrite existing outputs");
 }
 
 void AddGtStitchOptions(CLI::App* app, GtStitchArgs& args) {
@@ -96,28 +88,12 @@ void AddGtStitchOptions(CLI::App* app, GtStitchArgs& args) {
 }
 
 void AddEvalOptions(CLI::App* app, EvalArgs& args) {
-    // Mode A.
     app->add_option("--pred-dir", args.pred_dir,
-                    "Mode A: per-board prediction JSONs");
+                    "per-board prediction JSONs (output of `knots run`)")
+        ->required();
     app->add_option("--gt-dir", args.gt_dir,
-                    "Mode A: per-board GT JSONs");
-
-    // Mode B. --model / --conf / --cpu are not required at the CLI11 level
-    // because eval can run in Mode A without a model; the callback validates
-    // mode coherence after parse.
-    app->add_option("--model", args.inference.model, "Mode B: ONNX model");
-    app->add_option("--conf", args.inference.conf,
-                    "Mode B: confidence threshold")
-        ->capture_default_str();
-    app->add_flag("--cpu", args.inference.cpu_only,
-                  "Mode B: force CPU execution provider");
-    app->add_option("--images-dir", args.images_dir, "Mode B: frame PNGs");
-    app->add_option("--labels-dir", args.labels_dir,
-                    "Mode B: YOLO bbox labels");
-    AddStitchOpts(app, args.stitch);
-    AddSplitsFilterOpts(app, args.splits);
-
-    // Shared.
+                    "per-board GT JSONs (output of `knots gt-stitch`)")
+        ->required();
     AddBoardsFilterOpts(app, args.boards);
     app->add_option("--out", args.out_json,
                     "JSON output path (default out/analysis/eval_boards.json)");
