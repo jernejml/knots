@@ -63,9 +63,10 @@ target_compile_options(knots PRIVATE
 
 # -- Tests -------------------------------------------------------------------
 # Linked against the geometry + cli_util source files directly (no ORT, no
-# ultralytics, no I/O), so the test binary builds in seconds and stays
-# isolated from the heavy inference dependencies. Enabled by default; disable
-# with -DBUILD_TESTS=OFF when iterating on the main binary.
+# ultralytics), so the test binary builds in seconds and stays isolated from
+# the heavy inference dependencies. nlohmann_json is needed because
+# cli_util.cpp reads partitions.json. Enabled by default; disable with
+# -DBUILD_TESTS=OFF when iterating on the main binary.
 
 option(BUILD_TESTS "Build the unit tests" ON)
 
@@ -85,6 +86,7 @@ if(BUILD_TESTS)
     target_link_libraries(knots_tests PRIVATE
         GTest::gtest_main
         ${OpenCV_LIBS}
+        nlohmann_json::nlohmann_json
     )
     target_compile_options(knots_tests PRIVATE
         -Wall -Wextra -Wpedantic

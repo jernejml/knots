@@ -46,10 +46,10 @@ struct BoardsFilter {
     std::filesystem::path boards_file;
 };
 
-// --splits-csv PATH / --split {train,val,test}. Validation that --splits-csv
-// requires --split happens in the subcommand callback.
+// --partitions-json PATH / --split {train,val,test}. Validation that
+// --partitions-json requires --split happens in the subcommand callback.
 struct SplitsFilter {
-    std::filesystem::path splits_csv;
+    std::filesystem::path partitions_json;
     std::string split;
 };
 

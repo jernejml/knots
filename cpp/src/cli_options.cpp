@@ -27,16 +27,15 @@ void AddBoardsFilterOpts(CLI::App* app, BoardsFilter& f) {
 }
 
 void AddSplitsFilterOpts(CLI::App* app, SplitsFilter& f) {
-    auto* csv = app->add_option("--splits-csv", f.splits_csv, "analysis/splits.csv");
+    auto* json = app->add_option("--partitions-json", f.partitions_json, "analysis/partitions.json");
     auto* sp =
         app->add_option("--split", f.split, "restrict to this split")
             ->check(CLI::IsMember({"train", "val", "test"}));
-    // CLI11 enforces "--splits-csv requires --split" symmetrically: if either
-    // is given, both must be. The runtime check the old code had ("--splits-
-    // csv requires --split") was one-directional; tightening to both
-    // directions catches "--split test" with no splits.csv too.
-    csv->needs(sp);
-    sp->needs(csv);
+    // CLI11 enforces "--partitions-json requires --split" symmetrically: if
+    // either is given, both must be. Catches "--split test" with no
+    // partitions file too.
+    json->needs(sp);
+    sp->needs(json);
 }
 
 void AddFramesFilterOpts(CLI::App* app, FramesFilter& f) {

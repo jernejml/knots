@@ -21,10 +21,8 @@ void AddStitchOpts(CLI::App* app, StitchOpts& opts);
 // --boards LIST / --boards-file PATH.
 void AddBoardsFilterOpts(CLI::App* app, BoardsFilter& f);
 
-// --splits-csv PATH / --split {train,val,test}.
-// `splits_csv_needs_split` (default true) wires CLI11 to fail if --splits-csv
-// is given without --split. Kept togglable because some call sites validate
-// this differently.
+// --partitions-json PATH / --split {train,val,test}.
+// CLI11 is wired to fail if either flag is given without the other.
 void AddSplitsFilterOpts(CLI::App* app, SplitsFilter& f);
 
 // --frames LIST / --frames-file PATH.

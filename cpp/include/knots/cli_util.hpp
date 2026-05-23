@@ -11,10 +11,11 @@
 
 namespace knots::cli {
 
-// Read --splits-csv (analysis/splits.csv shape: header row must include
-// 'board' and 'split' columns). Returns the set of board IDs whose 'split'
-// equals `want`. Throws std::runtime_error on IO failure or missing columns.
-std::unordered_set<int> LoadBoardsInSplit(const std::filesystem::path& csv,
+// Read --partitions-json (analysis/partitions.json shape: top-level object
+// with "train" / "val" / "test" arrays of board IDs). Returns the set of
+// board IDs in the `want` split. Throws std::runtime_error on IO failure
+// or malformed JSON.
+std::unordered_set<int> LoadBoardsInSplit(const std::filesystem::path& path,
                                           const std::string& want);
 
 // --boards-file FILE: one ID per line; '#' comments and blank lines allowed.
@@ -38,8 +39,9 @@ std::vector<std::string> CollectExplicitStems(const std::vector<std::string>& fr
 // exposes. Semantics:
 //   1. --boards LIST and --boards-file PATH are alternatives; if both are set
 //      the file wins (last-write semantics).
-//   2. --splits-csv + --split intersect with whatever the previous step set.
-//      If no --boards/--boards-file was given, the splits set is the filter.
+//   2. --partitions-json + --split intersect with whatever the previous step
+//      set. If no --boards/--boards-file was given, the split set is the
+//      filter.
 //   3. Empty result means "no filter" (all boards admitted) — only when no
 //      flag was passed; an explicit but empty intersection is still empty.
 //
@@ -47,7 +49,7 @@ std::vector<std::string> CollectExplicitStems(const std::vector<std::string>& fr
 // the same thing in both.
 std::unordered_set<int> BuildBoardsFilter(const std::vector<int>& boards,
                                           const std::filesystem::path& boards_file,
-                                          const std::filesystem::path& splits_csv,
+                                          const std::filesystem::path& partitions_json,
                                           const std::string& split);
 
 }  // namespace knots::cli

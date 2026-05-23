@@ -44,19 +44,16 @@ TEST(ParseFrameStem, RejectsMalformed) {
 
 namespace {
 
-// Write a minimal splits.csv to a temp path. Returns the path; caller removes.
-fs::path WriteTempSplitsCsv(const std::string& content) {
-    fs::path p = fs::temp_directory_path() / ("knots_splits_" + std::to_string(::getpid()) +
-                                              "_" + std::to_string(rand()) + ".csv");
+// Write a minimal partitions.json to a temp path. Returns the path; caller removes.
+fs::path WriteTempPartitionsJson(const std::string& content) {
+    fs::path p = fs::temp_directory_path() / ("knots_partitions_" + std::to_string(::getpid()) +
+                                              "_" + std::to_string(rand()) + ".json");
     std::ofstream(p) << content;
     return p;
 }
 
-const std::string kThreeBoardSplits =
-    "board,split,frames_tier\n"
-    "1,train,(0,10]\n"
-    "2,test,(0,10]\n"
-    "3,test,(0,10]\n";
+const std::string kThreeBoardPartitions =
+    R"({"train": [1], "val": [], "test": [2, 3]})";
 
 }  // namespace
 
@@ -73,24 +70,24 @@ TEST(BuildBoardsFilter, OnlyBoardsListIsUsedDirectly) {
     EXPECT_TRUE(f.count(3));
 }
 
-TEST(BuildBoardsFilter, OnlySplitsCsvReturnsThoseBoards) {
-    auto csv = WriteTempSplitsCsv(kThreeBoardSplits);
-    auto f = knots::cli::BuildBoardsFilter({}, "", csv, "test");
+TEST(BuildBoardsFilter, OnlyPartitionsJsonReturnsThoseBoards) {
+    auto json = WriteTempPartitionsJson(kThreeBoardPartitions);
+    auto f = knots::cli::BuildBoardsFilter({}, "", json, "test");
     EXPECT_EQ(f.size(), 2u);
     EXPECT_TRUE(f.count(2));
     EXPECT_TRUE(f.count(3));
-    fs::remove(csv);
+    fs::remove(json);
 }
 
 TEST(BuildBoardsFilter, BoardsListIntersectsWithSplit) {
     // --boards passes 1,2,3 — but --split test only has 2,3. Intersection = {2,3}.
-    auto csv = WriteTempSplitsCsv(kThreeBoardSplits);
-    auto f = knots::cli::BuildBoardsFilter({1, 2, 3}, "", csv, "test");
+    auto json = WriteTempPartitionsJson(kThreeBoardPartitions);
+    auto f = knots::cli::BuildBoardsFilter({1, 2, 3}, "", json, "test");
     EXPECT_EQ(f.size(), 2u);
     EXPECT_TRUE(f.count(2));
     EXPECT_TRUE(f.count(3));
     EXPECT_FALSE(f.count(1));
-    fs::remove(csv);
+    fs::remove(json);
 }
 
 TEST(BuildBoardsFilter, BoardsListDisjointFromSplitEmptyIntersection) {
@@ -98,8 +95,8 @@ TEST(BuildBoardsFilter, BoardsListDisjointFromSplitEmptyIntersection) {
     // Crucially, this is NOT the same as "no filter": the result is an
     // explicitly empty filter that should restrict everything downstream.
     // Documenting this behaviour so any future refactor preserves it.
-    auto csv = WriteTempSplitsCsv(kThreeBoardSplits);
-    auto f = knots::cli::BuildBoardsFilter({1}, "", csv, "test");
+    auto json = WriteTempPartitionsJson(kThreeBoardPartitions);
+    auto f = knots::cli::BuildBoardsFilter({1}, "", json, "test");
     EXPECT_TRUE(f.empty());
-    fs::remove(csv);
+    fs::remove(json);
 }

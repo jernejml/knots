@@ -1,62 +1,33 @@
 #include "knots/cli_util.hpp"
 
-#include <algorithm>
 #include <fstream>
+#include <nlohmann/json.hpp>
 #include <regex>
 
 namespace knots::cli {
 
-namespace {
-
-// CSV-line splitter that respects double-quoted fields. Trailing empty
-// fields are preserved. File-local because the only caller is the
-// splits.csv reader below; no caller outside this TU needs the helper.
-std::vector<std::string> SplitCsvLine(const std::string& line) {
-    std::vector<std::string> fields;
-    std::string cur;
-    bool in_quotes = false;
-    for (char c : line) {
-        if (c == '"') {
-            in_quotes = !in_quotes;
-        } else if (c == ',' && !in_quotes) {
-            fields.push_back(cur);
-            cur.clear();
-        } else {
-            cur += c;
-        }
-    }
-    fields.push_back(cur);
-    return fields;
-}
-
-}  // namespace
-
-std::unordered_set<int> LoadBoardsInSplit(const std::filesystem::path& csv,
+std::unordered_set<int> LoadBoardsInSplit(const std::filesystem::path& path,
                                           const std::string& want) {
-    std::ifstream f(csv);
-    if (!f) throw std::runtime_error("cannot open " + csv.string());
-    std::string line;
-    if (!std::getline(f, line)) throw std::runtime_error("empty splits CSV");
-    auto header = SplitCsvLine(line);
-    int board_col = -1, split_col = -1;
-    for (size_t c = 0; c < header.size(); ++c) {
-        if (header[c] == "board") board_col = static_cast<int>(c);
-        if (header[c] == "split") split_col = static_cast<int>(c);
+    std::ifstream f(path);
+    if (!f) throw std::runtime_error("cannot open " + path.string());
+    nlohmann::json j;
+    try {
+        f >> j;
+    } catch (const nlohmann::json::parse_error& e) {
+        throw std::runtime_error("malformed partitions JSON " + path.string() + ": " + e.what());
     }
-    if (board_col < 0 || split_col < 0) {
-        throw std::runtime_error("splits CSV missing 'board' or 'split' column");
+    if (!j.is_object()) {
+        throw std::runtime_error("partitions JSON must be an object with split keys: " +
+                                 path.string());
     }
     std::unordered_set<int> boards;
-    while (std::getline(f, line)) {
-        if (line.empty()) continue;
-        auto cols = SplitCsvLine(line);
-        if (static_cast<int>(cols.size()) <= std::max(board_col, split_col)) continue;
-        if (cols[split_col] != want) continue;
-        try {
-            boards.insert(std::stoi(cols[board_col]));
-        } catch (...) {
-            // skip malformed
-        }
+    if (!j.contains(want)) return boards;  // unknown split name → empty set
+    const auto& arr = j[want];
+    if (!arr.is_array()) {
+        throw std::runtime_error("partitions JSON key '" + want + "' must be an array of ints");
+    }
+    for (const auto& v : arr) {
+        if (v.is_number_integer()) boards.insert(v.get<int>());
     }
     return boards;
 }
@@ -118,12 +89,12 @@ bool ParseFrameStem(const std::string& stem, int& board, int& frame_idx) {
 
 std::unordered_set<int> BuildBoardsFilter(const std::vector<int>& boards,
                                           const std::filesystem::path& boards_file,
-                                          const std::filesystem::path& splits_csv,
+                                          const std::filesystem::path& partitions_json,
                                           const std::string& split) {
     std::unordered_set<int> filter(boards.begin(), boards.end());
     if (!boards_file.empty()) filter = ParseBoardsFile(boards_file);
-    if (!splits_csv.empty()) {
-        auto split_boards = LoadBoardsInSplit(splits_csv, split);
+    if (!partitions_json.empty()) {
+        auto split_boards = LoadBoardsInSplit(partitions_json, split);
         if (filter.empty()) {
             filter = std::move(split_boards);
         } else {

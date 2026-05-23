@@ -47,11 +47,11 @@ int CmdRun(const RunArgs& args) {
         const auto explicit_stems =
             cli::CollectExplicitStems(args.frames.frames, args.frames.frames_file);
         std::unordered_set<int> boards_filter;
-        if (!args.splits.splits_csv.empty()) {
-            boards_filter = cli::LoadBoardsInSplit(args.splits.splits_csv, args.splits.split);
+        if (!args.splits.partitions_json.empty()) {
+            boards_filter = cli::LoadBoardsInSplit(args.splits.partitions_json, args.splits.split);
             if (boards_filter.empty()) {
                 std::cerr << "warning: no boards match split " << args.splits.split << " in "
-                          << args.splits.splits_csv << "\n";
+                          << args.splits.partitions_json << "\n";
             }
         }
         const auto by_board =

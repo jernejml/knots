@@ -3,7 +3,7 @@
 
 Builds a YOLO-shaped staging dir (symlinks back to data/images/ and the
 chosen SAM polygon-labels dir), writes split list files derived from
-out/analysis/splits.csv, then calls ultralytics' training loop.
+out/analysis/partitions.json, then calls ultralytics' training loop.
 
 Staging layout:
     out/yolo_dataset/
@@ -22,7 +22,7 @@ script (a future change) only after seeing the train/val curve.
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import os
 import re
 from pathlib import Path

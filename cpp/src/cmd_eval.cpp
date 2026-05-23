@@ -215,7 +215,7 @@ std::map<int, BoardPolygons> CollectModeBData(const EvalArgs& args, std::string&
 
     const auto boards_filter = cli::BuildBoardsFilter(
         args.boards.boards, args.boards.boards_file,
-        args.splits.splits_csv, args.splits.split);
+        args.splits.partitions_json, args.splits.split);
 
     const auto by_board =
         pipeline::CollectFramesByBoard(args.labels_dir, ".txt", {}, boards_filter);
