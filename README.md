@@ -62,8 +62,10 @@ Single entry point; defaults to running every stage end-to-end.
 ./run.sh   # use --help for stages, env vars, and examples
 ```
 
-No trained model ships with the repo. The default `./run.sh` trains one
-(hours on a single GPU).
+A trained model is committed at `out/models/model.onnx`, so a reviewer can run
+inference directly — `./run.sh runtime` (infer + eval + viz), no training
+needed. Running the full `./run.sh` (or `./run.sh offline`) retrains from
+scratch and overwrites it — hours on a single GPU.
 
 The two main outputs:
 

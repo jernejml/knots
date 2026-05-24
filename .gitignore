@@ -2,6 +2,9 @@ data/images/
 data/labels/
 .claude
 cpp/build/
-out/
+out/*
+!out/models/
+out/models/*
+!out/models/model.onnx
 scripts/__pycache__/
 scripts/tools/__pycache__/
