@@ -28,7 +28,7 @@
 #   ./run.sh sam train infer eval  # subset; canonical order is enforced
 #                                  # regardless of how you type the tokens
 #   ./run.sh infer                 # produce per-board polygons; reuses the
-#                                  # existing out/models/best.onnx
+#                                  # existing out/models/model.onnx
 #   ./run.sh eval                  # metrics; same model, plus GT labels
 #   ./run.sh clean all             # nuke local artefacts, then re-run from zero
 #   ./run.sh nuke all              # also remove docker images, then re-run
@@ -129,7 +129,7 @@ build_image() {
 }
 
 # After training, locate the run dir ultralytics wrote into. Used to place
-# the eval JSON alongside best.pt/best.onnx so each run owns its artefacts.
+# the eval JSON alongside the run's weights/ONNX so each run owns its artefacts.
 # Returns "" if no run_meta_train_yolo.json is found.
 find_latest_train_run_dir() {
     local latest
@@ -204,7 +204,7 @@ stage_infer() {
         -v "$PWD/out:/work/out" \
         -v "$PWD/configs:/work/configs:ro" \
         knots-infer knots run \
-        --model /work/out/models/best.onnx \
+        --model /work/out/models/model.onnx \
         --input-dir /work/data/images \
         --output-dir /work/out/boards/pred \
         "${splits_args[@]}"
@@ -278,7 +278,7 @@ Stages (canonical order; tokens may be given in any order on the command line):
 
 Examples:
   ./run.sh                     # full pipeline
-  ./run.sh infer               # per-board polygons; reuses out/models/best.onnx
+  ./run.sh infer               # per-board polygons; reuses out/models/model.onnx
   ./run.sh infer eval viz      # polygons + metrics + reviewer-friendly overlays
   ./run.sh eval                # metrics; rebuilds GT under out/boards/gt/ if missing
   ./run.sh train infer eval    # re-train (re-exports ONNX), re-run both modes

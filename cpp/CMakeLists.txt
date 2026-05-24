@@ -1,17 +1,17 @@
-# C++ knots program: per-frame YOLOv11-seg inference + cross-frame dedup.
+# knots — C++ runtime for wood-knot polygon extraction.
 #
-# Step 1 (current): smoke-test ONNX Runtime by loading best.onnx and printing
-# input/output names + shapes + types. Validates the build setup before any
-# real pipeline logic is added.
+# Builds the `knots` binary: per-frame YOLOv11-seg inference via ONNX Runtime,
+# raster-union stitching of the per-frame polygons into per-board polygons, and
+# a comparison/eval mode. Two subcommands, `knots run` and `knots eval`; see
+# `knots --help-all`, or README / run.sh for how the pipeline wires them.
 #
 # Build:
-#   cd cpp && mkdir build && cd build
-#   cmake -DCMAKE_BUILD_TYPE=Release \
-#         -DONNXRUNTIME_ROOT=/path/to/onnxruntime ..
-#   cmake --build . -j
+#   cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release \
+#         -DONNXRUNTIME_ROOT=/path/to/onnxruntime
+#   cmake --build cpp/build -j
+#   ctest --test-dir cpp/build        # unit tests (geometry + cli_util)
 #
-# Run:
-#   ./knots ../../models/best.onnx
+# The knots-infer Docker image builds this; see docker/Dockerfile.infer.
 
 cmake_minimum_required(VERSION 3.20)
 project(knots LANGUAGES CXX)

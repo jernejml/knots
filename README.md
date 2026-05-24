@@ -19,7 +19,7 @@ Three design choices shape the rest:
   merged outlines back out.
 - **One file crosses the Python ↔ C++ boundary: a trained model exported
   to ONNX.** Python handles dataset analysis, SAM2 polygon generation, and
-  YOLOv11-seg training, producing `best.onnx`. From there a small C++ binary
+  YOLOv11-seg training, producing `out/models/model.onnx`. From there a small C++ binary
   on OpenCV + ONNX Runtime owns the runtime pipeline. No shared Python
   runtime; the model is the only thing that crosses.
 
@@ -82,7 +82,7 @@ docker run --rm --gpus all \
   -v /path/to/test/data:/work/data:ro \
   -v "$PWD/out:/work/out" \
   knots-infer knots run \
-    --model /work/out/models/best.onnx \
+    --model /work/out/models/model.onnx \
     --input-dir /work/data/images \
     --output-dir /work/out/boards/pred
 
@@ -110,10 +110,10 @@ Training (offline)
                                      │
   data/labels/ ──► sam ──────────────┤
                                      ▼
-                                   train (trains + exports ONNX) ──► out/models/best.onnx
+                                   train (trains + exports ONNX) ──► out/models/model.onnx
 
 
-Runtime (uses out/models/best.onnx)
+Runtime (uses out/models/model.onnx)
 
   data/images/ ──► infer ──► out/boards/pred/<board>.json
                                             │
@@ -133,8 +133,9 @@ Stages at a glance:
               to `out/analysis/partitions.json`. By board, not by frame —
               the 50 % overlap would otherwise leak knots between splits.
 - `sam`       SAM2 turns bbox labels into polygon labels
-- `train`     YOLOv11-seg fine-tuning on those polygons; exports `best.pt`
-              to `best.onnx` in the same step
+- `train`     YOLOv11-seg fine-tuning on those polygons; exports a checkpoint
+              (best or last, default last) to `out/models/model.onnx` in the
+              same step
 - `infer`     per-board predicted polygons from the trained model
 - `eval`      precision / recall / F1 / IoU comparing pred vs GT. Stitches
               per-board GT from raw bbox labels (`out/boards/gt/`) as a
@@ -158,7 +159,7 @@ the cached per-board polygons. No inference at eval time, no GPU.
 
 - `out/analysis/` — `partitions.json` (board → train/val/test) + `run_meta_prepare.json`
 - `out/runs/segment/<name>/` — weights, ONNX, `run_meta_*.json`, eval JSON
-- `out/models/best.onnx` — symlink to the latest export
+- `out/models/model.onnx` — symlink to the latest export (best or last; run_meta records which)
 - `out/boards/pred/` — per-board predicted polygons
 - `out/boards/gt/` — per-board GT polygons
 - `out/boards/viz/` — per-board stitched JPEGs with overlays

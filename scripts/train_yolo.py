@@ -4,8 +4,10 @@
 Builds a YOLO-shaped staging dir (symlinks back to data/images/ and the
 chosen SAM polygon-labels dir), writes split list files derived from
 out/analysis/partitions.json, calls ultralytics' training loop, and finally
-exports the best checkpoint to ONNX next to best.pt. The C++ runtime
-consumes `out/models/best.onnx`, refreshed as a symlink to the latest export.
+exports a checkpoint (best or last, see --export-weights) to ONNX next to the
+.pt. The C++ runtime consumes the policy-neutral path `out/models/model.onnx`,
+refreshed as a symlink to the latest export; run_meta records which checkpoint
+it came from.
 
 Staging layout:
     out/yolo_dataset/
@@ -39,9 +41,10 @@ from stage_util import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STAGE = "train_yolo"
 FILENAME_RE = re.compile(r"^(\d+)_(\d+)\.png$")
-# C++ runtime reads from this fixed path; this symlink is refreshed at the
-# end of each train pass to point at the just-exported ONNX.
-LATEST_ONNX_LINK = REPO_ROOT / "out" / "models" / "best.onnx"
+# C++ runtime reads from this fixed, policy-neutral path; the symlink is
+# refreshed each train pass to point at the just-exported ONNX. Which
+# checkpoint produced it (best or last) is recorded in run_meta, not the name.
+LATEST_ONNX_LINK = REPO_ROOT / "out" / "models" / "model.onnx"
 VALID_SPLITS = ("train", "val", "test")
 
 
@@ -230,6 +233,12 @@ def main() -> None:
         "--export-device", default="cpu",
         help="Device for the ONNX export; CPU is fine and avoids GPU init.",
     )
+    ap.add_argument(
+        "--export-weights", choices=("best", "last"), default="last",
+        help="Which checkpoint to export: 'best' (highest val fitness) or 'last' "
+        "(final epoch). Default 'last' — val labels are SAM pseudo-labels, so the "
+        "best-val selection signal is weak.",
+    )
     apply_config_defaults(ap, load_config_section(pre_args.config, STAGE))
     args = ap.parse_args()
 
@@ -261,17 +270,15 @@ def main() -> None:
         )
         train_kwargs["project"] = str(args.project)
         model.train(**train_kwargs)
-        print("\nbest weights:", model.trainer.best)
         save_dir = Path(model.trainer.save_dir)
-        best_pt = Path(model.trainer.best)
+        # `model.trainer` exposes both checkpoints as .best / .last; pick the
+        # one the caller asked for. Load it fresh rather than exporting the
+        # in-memory weights, which hold the final epoch regardless of choice.
+        checkpoint = Path(getattr(model.trainer, args.export_weights))
 
-        # Export the just-trained best.pt to ONNX, in place next to best.pt.
-        # Load best_pt fresh so we export the best checkpoint, not whatever
-        # weights `model` happens to hold post-train (last epoch may have
-        # overfit).
-        print(f"\nexporting {rel_to_root(best_pt)} → ONNX (opset={args.opset}, "
-              f"simplify={args.simplify}, device={args.export_device})")
-        export_model = YOLO(str(best_pt))
+        print(f"\nexporting {args.export_weights} checkpoint {rel_to_root(checkpoint)} → ONNX "
+              f"(opset={args.opset}, simplify={args.simplify}, device={args.export_device})")
+        export_model = YOLO(str(checkpoint))
         exported = Path(export_model.export(
             format="onnx",
             imgsz=args.imgsz,
@@ -288,7 +295,14 @@ def main() -> None:
         print(f"latest pointer: {rel_to_root(LATEST_ONNX_LINK)} → "
               f"{os.readlink(LATEST_ONNX_LINK)}")
 
-    save_run_meta(save_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
+    save_run_meta(
+        save_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"],
+        extra={
+            "export_weights": args.export_weights,
+            "source_checkpoint": rel_to_root(checkpoint),
+            "published_onnx": rel_to_root(LATEST_ONNX_LINK),
+        },
+    )
     print(f"run meta written: {rel_to_root(save_dir / 'run_meta.json')}")
 
 

@@ -33,9 +33,10 @@ workers       = 8
 device        = "0"
 name          = "train"
 # ONNX export (runs at the tail of train_yolo.py). imgsz inherits the training value.
-opset         = 17
-simplify      = false
-export_device = "cpu"
+opset          = 17
+simplify       = false
+export_device  = "cpu"
+export_weights = "last"   # best | last; best-val selection is weak under SAM pseudo-labels
 
 [eval_yolo]
 split  = "test"
