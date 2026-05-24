@@ -1,10 +1,10 @@
 """Shared per-stage plumbing: TOML config loading, wall-time timing, run metadata.
 
-Each pipeline script (prepare, sam_polygons, train_yolo, export_onnx) reads
-its inputs from a `[<stage>]` TOML section, runs its work inside a
-`stage_timer(...)` block, and dumps a `run_meta.json` next to its output
-artefacts. CLI flags continue to override config values, so the
-quick-iteration loop "edit a number on the command line" still works.
+Each pipeline script (prepare, sam_polygons, train_yolo) reads its inputs
+from a `[<stage>]` TOML section, runs its work inside a `stage_timer(...)`
+block, and dumps a `run_meta.json` next to its output artefacts. CLI flags
+continue to override config values, so the quick-iteration loop "edit a
+number on the command line" still works.
 
 Wiring pattern (see scripts/train_yolo.py for the worked example):
 

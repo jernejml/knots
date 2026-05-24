@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Train YOLOv11-seg on SAM-derived polygon labels.
+"""Train YOLOv11-seg on SAM-derived polygon labels, then export to ONNX.
 
 Builds a YOLO-shaped staging dir (symlinks back to data/images/ and the
 chosen SAM polygon-labels dir), writes split list files derived from
-out/analysis/partitions.json, then calls ultralytics' training loop.
+out/analysis/partitions.json, calls ultralytics' training loop, and finally
+exports the best checkpoint to ONNX next to best.pt. The C++ runtime
+consumes `out/models/best.onnx`, refreshed as a symlink to the latest export.
 
 Staging layout:
     out/yolo_dataset/
@@ -12,8 +14,7 @@ Staging layout:
         labels/   (symlinks into out/labels/seg/)
         train.txt val.txt test.txt   (paths relative to repo root)
 
-This script is for training only; evaluate with scripts/tools/eval_yolo.py and
-export ONNX with scripts/export_onnx.py.
+Evaluate the trained model with scripts/tools/eval_yolo.py.
 
 Augmentation: ultralytics defaults. Pass augmentation kwargs via the
 script (a future change) only after seeing the train/val curve.
@@ -38,6 +39,9 @@ from stage_util import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STAGE = "train_yolo"
 FILENAME_RE = re.compile(r"^(\d+)_(\d+)\.png$")
+# C++ runtime reads from this fixed path; this symlink is refreshed at the
+# end of each train pass to point at the just-exported ONNX.
+LATEST_ONNX_LINK = REPO_ROOT / "out" / "models" / "best.onnx"
 VALID_SPLITS = ("train", "val", "test")
 
 
@@ -56,6 +60,18 @@ def ensure_symlink(link: Path, target: Path) -> None:
             return
         link.unlink()
     link.symlink_to(rel_target)
+
+
+def refresh_latest_onnx_link(target: Path) -> None:
+    """Update LATEST_ONNX_LINK to point at `target` via a relative symlink."""
+    LATEST_ONNX_LINK.parent.mkdir(parents=True, exist_ok=True)
+    target_resolved = target.resolve()
+    if LATEST_ONNX_LINK.resolve(strict=False) == target_resolved:
+        return
+    if LATEST_ONNX_LINK.is_symlink() or LATEST_ONNX_LINK.exists():
+        LATEST_ONNX_LINK.unlink()
+    rel = os.path.relpath(target_resolved, LATEST_ONNX_LINK.parent.resolve())
+    LATEST_ONNX_LINK.symlink_to(rel)
 
 
 def load_board_splits(partitions_json: Path) -> dict[int, str]:
@@ -201,6 +217,19 @@ def main() -> None:
     ap.add_argument(
         "--setup-only", action="store_true", help="Build the staging dir and exit (no training)."
     )
+    # -- ONNX export knobs (the export runs as the last step of this script) --
+    ap.add_argument(
+        "--opset", type=int, default=17,
+        help="ONNX opset version for the export; 17 has wider runtime compatibility than 19+.",
+    )
+    ap.add_argument(
+        "--simplify", action="store_true",
+        help="Run onnxslim on the exported graph (requires onnxslim installed).",
+    )
+    ap.add_argument(
+        "--export-device", default="cpu",
+        help="Device for the ONNX export; CPU is fine and avoids GPU init.",
+    )
     apply_config_defaults(ap, load_config_section(pre_args.config, STAGE))
     args = ap.parse_args()
 
@@ -234,6 +263,30 @@ def main() -> None:
         model.train(**train_kwargs)
         print("\nbest weights:", model.trainer.best)
         save_dir = Path(model.trainer.save_dir)
+        best_pt = Path(model.trainer.best)
+
+        # Export the just-trained best.pt to ONNX, in place next to best.pt.
+        # Load best_pt fresh so we export the best checkpoint, not whatever
+        # weights `model` happens to hold post-train (last epoch may have
+        # overfit).
+        print(f"\nexporting {rel_to_root(best_pt)} → ONNX (opset={args.opset}, "
+              f"simplify={args.simplify}, device={args.export_device})")
+        export_model = YOLO(str(best_pt))
+        exported = Path(export_model.export(
+            format="onnx",
+            imgsz=args.imgsz,
+            opset=args.opset,
+            simplify=args.simplify,
+            dynamic=False,
+            half=False,
+            nms=True,
+            device=args.export_device,
+        ))
+        size_mb = exported.stat().st_size / 1e6
+        print(f"exported → {rel_to_root(exported)}  ({size_mb:.1f} MB)")
+        refresh_latest_onnx_link(exported)
+        print(f"latest pointer: {rel_to_root(LATEST_ONNX_LINK)} → "
+              f"{os.readlink(LATEST_ONNX_LINK)}")
 
     save_run_meta(save_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"])
     print(f"run meta written: {rel_to_root(save_dir / 'run_meta.json')}")

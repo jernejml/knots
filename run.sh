@@ -6,8 +6,7 @@
 #   nuke       clean + docker image rm knots-{data,train,infer}
 #   prepare    prepare.py (board partitions)     [knots-data]
 #   sam        sam_polygons.py                   [knots-train, GPU]
-#   train      train_yolo.py                     [knots-train, GPU]
-#   export     export_onnx.py                    [knots-train, GPU]
+#   train      train_yolo.py (incl. ONNX export) [knots-train, GPU]
 #   infer      knots run (per-board polygons)    [knots-infer, GPU]
 #   gt         knots gt-stitch (per-board GT)    [knots-infer]
 #   viz        stitched board overlays (JPEG)    [knots-data]
@@ -64,7 +63,7 @@
 #
 # Requires Docker + NVIDIA Container Toolkit on the host (CUDA 12.8 base).
 #
-# The PyTorch stages (sam, train, export) need --ipc=host so DataLoader
+# The PyTorch stages (sam, train) need --ipc=host so DataLoader
 # workers can use the host's /dev/shm; the Docker default of 64 MB causes
 # the workers to crash with a 'bus error' once batches start prefetching.
 # Equivalent: --shm-size=8g (bounded but more explicit).
@@ -98,7 +97,7 @@ TRAIN_NAME_ARGS=()
 
 # Canonical order. clean/nuke run before any pipeline work; `all` expands to
 # the pipeline subset only (you have to ask for clean/nuke explicitly).
-PIPELINE_STAGES=(prepare sam train export infer gt viz eval)
+PIPELINE_STAGES=(prepare sam train infer gt viz eval)
 ALL_STAGES=(clean nuke "${PIPELINE_STAGES[@]}")
 
 # Map each pipeline stage to the docker image it needs. clean/nuke don't
@@ -107,7 +106,6 @@ declare -A STAGE_IMAGE=(
     [prepare]=knots-data
     [sam]=knots-train
     [train]=knots-train
-    [export]=knots-train
     [infer]=knots-infer
     [gt]=knots-infer
     [viz]=knots-data
@@ -193,15 +191,6 @@ stage_train() {
         -v "$PWD/configs:/work/configs:ro" \
         knots-train python3 scripts/train_yolo.py \
         "${CONFIG_ARGS[@]}" "${TRAIN_NAME_ARGS[@]}"
-}
-
-stage_export() {
-    log "export to ONNX"
-    docker run --rm --gpus all --ipc=host \
-        -v "$PWD/data:/work/data:ro" \
-        -v "$PWD/out:/work/out" \
-        -v "$PWD/configs:/work/configs:ro" \
-        knots-train python3 scripts/export_onnx.py "${CONFIG_ARGS[@]}"
 }
 
 stage_infer() {
@@ -301,8 +290,7 @@ Stages (canonical order; tokens may be given in any order on the command line):
   nuke       clean + docker image rm knots-{data,train,infer}
   prepare    prepare.py (board partitions)     [knots-data]
   sam        sam_polygons.py                   [knots-train, GPU]
-  train      train_yolo.py                     [knots-train, GPU]
-  export     export_onnx.py                    [knots-train, GPU]
+  train      train_yolo.py (incl. ONNX export) [knots-train, GPU]
   infer      knots run (per-board polygons)    [knots-infer, GPU]
   gt         knots gt-stitch (per-board GT)    [knots-infer]
   viz        stitched board overlays (JPEG)    [knots-data]
@@ -314,7 +302,7 @@ Examples:
   ./run.sh infer               # per-board polygons; reuses out/models/best.onnx
   ./run.sh infer gt viz        # polygons + GT + reviewer-friendly overlays
   ./run.sh eval                # metrics from out/boards/{pred,gt}/ (cheap)
-  ./run.sh train export infer eval   # re-train, re-export, re-run both modes
+  ./run.sh train infer eval    # re-train (re-exports ONNX), re-run both modes
   ./run.sh clean all           # wipe artefacts, then re-run from zero
   FORCE=1 ./run.sh clean       # skip the destructive-action prompt (CI)
   SPLIT=test ./run.sh eval     # restrict to test split (default: all boards)
@@ -333,7 +321,7 @@ else
         case "$arg" in
             -h|--help) print_help; exit 0 ;;
             all) for s in "${PIPELINE_STAGES[@]}"; do want["$s"]=1; done ;;
-            clean|nuke|prepare|sam|train|export|infer|gt|viz|eval)
+            clean|nuke|prepare|sam|train|infer|gt|viz|eval)
                 want["$arg"]=1 ;;
             *) echo "unknown stage: $arg" >&2; echo >&2; print_help >&2; exit 2 ;;
         esac

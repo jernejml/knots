@@ -24,20 +24,18 @@ device = "cuda:0"
 limit  = 0
 
 [train_yolo]
-model    = "yolo11n-seg.pt"   # was 11m; nano for fast iteration loops
-epochs   = 50                 # was 100; tighten for iteration, raise for final runs
-imgsz    = 640
-batch    = 32                 # was 16; nano leaves VRAM headroom — back off if OOM
-patience = 10                 # was 20; matches the shorter epoch budget
-workers  = 8
-device   = "0"
-name     = "train"
-
-[export_onnx]
-imgsz    = 640
-opset    = 17
-simplify = false
-device   = "cpu"
+model         = "yolo11n-seg.pt"   # was 11m; nano for fast iteration loops
+epochs        = 50                 # was 100; tighten for iteration, raise for final runs
+imgsz         = 640
+batch         = 32                 # was 16; nano leaves VRAM headroom — back off if OOM
+patience      = 10                 # was 20; matches the shorter epoch budget
+workers       = 8
+device        = "0"
+name          = "train"
+# ONNX export (runs at the tail of train_yolo.py). imgsz inherits the training value.
+opset         = 17
+simplify      = false
+export_device = "cpu"
 
 [eval_yolo]
 split  = "test"

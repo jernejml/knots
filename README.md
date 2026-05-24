@@ -95,7 +95,7 @@ Training (offline)
                                      │
   data/labels/ ──► sam ──────────────┤
                                      ▼
-                                   train ──► export ──► out/models/best.onnx
+                                   train (trains + exports ONNX) ──► out/models/best.onnx
 
 
 Runtime (uses out/models/best.onnx)
@@ -115,8 +115,8 @@ Stages at a glance:
               to `out/analysis/partitions.json`. By board, not by frame —
               the 50 % overlap would otherwise leak knots between splits.
 - `sam`       SAM2 turns bbox labels into polygon labels
-- `train`     YOLOv11-seg fine-tuning on those polygons
-- `export`    `best.pt` → `best.onnx`
+- `train`     YOLOv11-seg fine-tuning on those polygons; exports `best.pt`
+              to `best.onnx` in the same step
 - `infer`     per-board predicted polygons from the trained model
 - `gt`        per-board ground-truth polygons from the original bboxes
               (same stitching path as `infer`, so the two are directly
@@ -133,7 +133,7 @@ at eval time, no GPU.
 | Image | Base / contents | Used by stages |
 |---|---|---|
 | `knots-data` | Python 3.13 slim + NumPy / SciPy / Pillow | prepare, viz |
-| `knots-train` | PyTorch 2.7 + CUDA 12.8 + Ultralytics (YOLO + SAM2) | sam, train, export |
+| `knots-train` | PyTorch 2.7 + CUDA 12.8 + Ultralytics (YOLO + SAM2) | sam, train |
 | `knots-infer` | CUDA 12.8 + cuDNN + ONNX Runtime GPU + the `knots` C++ binary | infer, gt, eval |
 
 ### Generated artefacts (`out/`)
