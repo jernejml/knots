@@ -6,5 +6,6 @@ out/*
 !out/models/
 out/models/*
 !out/models/model.onnx
+!out/models/model_card.md
 scripts/__pycache__/
 scripts/tools/__pycache__/

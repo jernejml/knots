@@ -71,8 +71,8 @@ The two main outputs:
 
 - **Per-board polygons:** `./run.sh infer` → `out/boards/pred/<board>.json`
 - **Test mode:** `./run.sh eval` → per-board table on stdout plus
-  `eval_boards.json` (aggregate precision / recall / F1 / mean mask IoU,
-  greedy bbox-IoU matching at 0.5).
+  `out/boards/eval_boards.json` (aggregate precision / recall / F1 / mean mask
+  IoU, greedy bbox-IoU matching at 0.5).
 
 Test mode against an arbitrary annotated directory is two steps: predict
 polygons, then compare. `eval` rebuilds the per-board GT from the raw
@@ -160,9 +160,11 @@ the cached per-board polygons. No inference at eval time, no GPU.
 ### Generated artefacts (`out/`)
 
 - `out/analysis/` — `partitions.json` (board → train/val/test) + `run_meta_prepare.json`
-- `out/runs/segment/<name>/` — weights, ONNX, `run_meta_*.json`, eval JSON
-- `out/models/model.onnx` — symlink to the latest export (best or last; run_meta records which)
+- `out/runs/segment/<name>/` — weights, ONNX, `run_meta_*.json`
+- `out/models/model.onnx` — the inference model the runtime consumes (committed
+  in the repo; a local `train` overwrites it with a symlink to that run's export)
 - `out/boards/pred/` — per-board predicted polygons
 - `out/boards/gt/` — per-board GT polygons
 - `out/boards/viz/` — per-board stitched JPEGs with overlays
+- `out/boards/eval_boards.json` — aggregate metrics (P / R / F1 / IoU)
 

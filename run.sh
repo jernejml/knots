@@ -14,8 +14,7 @@
 # infer and eval map to the two task-brief deliverables: infer produces
 # "polygon bounds of all knots on each individual board" (writes
 # out/boards/pred/<board>.json); eval is the "test mode which compares the
-# outputs to already annotated scans" (writes eval_boards.json next to the
-# latest train run, or under out/analysis/ if there isn't one).
+# outputs to already annotated scans" (writes out/boards/eval_boards.json).
 #
 # eval consumes the per-board JSONs that infer writes (out/boards/pred/) and
 # rebuilds the matching per-board GT (out/boards/gt/) from raw labels in the
@@ -127,21 +126,16 @@ image_exists() { docker image inspect "$1" >/dev/null 2>&1; }
 
 build_image() {
     local tag="$1" file="$2"
-    if [[ "$SKIP_BUILD" == "1" ]] || image_exists "$tag"; then
-        log "skip: $tag already present (SKIP_BUILD=1 to force-skip; rebuild manually if stale)"
+    if [[ "$SKIP_BUILD" == "1" ]]; then
+        log "skip build: $tag (SKIP_BUILD=1)"
         return
     fi
-    log "build $tag"
+    # Always build. Docker's layer cache makes this a ~1s no-op when nothing
+    # changed, and a real rebuild exactly when a source layer (cpp/, scripts/,
+    # the Dockerfile) changed. Gating on `docker image inspect` would instead
+    # silently run a stale image after a source edit.
+    log "build $tag (cached unless its inputs changed)"
     docker build -f "$file" -t "$tag" .
-}
-
-# After training, locate the run dir ultralytics wrote into. Used to place
-# the eval JSON alongside the run's weights/ONNX so each run owns its artefacts.
-# Returns "" if no run_meta_train_yolo.json is found.
-find_latest_train_run_dir() {
-    local latest
-    latest=$(ls -1t out/runs/segment/*/run_meta_train_yolo.json 2>/dev/null | head -1)
-    [[ -n "$latest" ]] && dirname "$latest"
 }
 
 # Returns 0 if $1 appears in the remaining args. Used to test stage membership
@@ -246,15 +240,8 @@ stage_eval() {
     # No model, no inference, no GPU — bbox match + mask IoU on the cached
     # per-board JSONs. Cheap; safe to re-run while tweaking thresholds.
     #
-    # Locate the training run dir so the eval JSON co-locates with the
-    # weights/ONNX/run_meta_*.json files. If nothing's there, eval falls
-    # back to its built-in default of out/analysis/eval_boards.json.
-    local run_dir eval_out_args=()
-    run_dir=$(find_latest_train_run_dir || true)
-    if [[ -n "$run_dir" ]]; then
-        eval_out_args=(--out "/work/${run_dir}/eval_boards.json")
-    fi
-
+    # Metrics land in out/boards/eval_boards.json, next to pred/, gt/, viz/,
+    # so every result a reviewer wants lives under one folder.
     log "knots eval: rebuild GT + compare against out/boards/pred"
     docker run --rm \
         -v "$PWD/data:/work/data:ro" \
@@ -264,13 +251,8 @@ stage_eval() {
         --gt-dir /work/out/boards/gt \
         --labels-dir /work/data/labels \
         --images-dir /work/data/images \
-        "${eval_out_args[@]}"
-
-    if [[ -n "$run_dir" ]]; then
-        log "done — metrics in ${run_dir}/eval_boards.json"
-    else
-        log "done — metrics in out/analysis/eval_boards.json (no train run dir found)"
-    fi
+        --out /work/out/boards/eval_boards.json
+    log "done — metrics in out/boards/eval_boards.json"
 }
 
 # --- Dispatch ---------------------------------------------------------------
