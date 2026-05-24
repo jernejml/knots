@@ -27,6 +27,8 @@
 #   ./run.sh all                   # same, explicit
 #   ./run.sh sam train infer eval  # subset; canonical order is enforced
 #                                  # regardless of how you type the tokens
+#   ./run.sh runtime               # infer + eval + viz from an existing model
+#   ./run.sh offline               # prepare + sam + train (build the model)
 #   ./run.sh infer                 # produce per-board polygons; reuses the
 #                                  # existing out/models/model.onnx
 #   ./run.sh eval                  # metrics; same model, plus GT labels
@@ -97,6 +99,11 @@ TRAIN_NAME_ARGS=()
 # the pipeline subset only (you have to ask for clean/nuke explicitly).
 PIPELINE_STAGES=(prepare sam train infer eval viz)
 ALL_STAGES=(clean nuke "${PIPELINE_STAGES[@]}")
+
+# Convenience groups mirroring the README's offline/runtime split.
+# `offline` builds the model; `runtime` consumes an existing out/models/model.onnx.
+OFFLINE_STAGES=(prepare sam train)
+RUNTIME_STAGES=(infer eval viz)
 
 # Map each pipeline stage to the docker image it needs. clean/nuke don't
 # have entries here; the image-build loop guards against missing keys.
@@ -194,6 +201,13 @@ stage_infer() {
     # Produces the task brief's primary deliverable: per-board polygons
     # written to out/boards/pred/<board>.json. SPLIT honoured for iteration;
     # default 'all' is what the brief asks for.
+    #
+    # -e follows the symlink, so a missing target (or dangling link) trips this.
+    if [[ ! -e out/models/model.onnx ]]; then
+        echo "no model at out/models/model.onnx — run './run.sh train' (or" \
+             "'./run.sh offline') first, or drop an exported model there." >&2
+        exit 1
+    fi
     local splits_args=()
     if [[ "$SPLIT" != "all" ]]; then
         splits_args=(--partitions-json /work/out/analysis/partitions.json --split "$SPLIT")
@@ -275,9 +289,12 @@ Stages (canonical order; tokens may be given in any order on the command line):
   eval       knots eval (rebuilds GT + metrics)[knots-infer]
   viz        stitched board overlays (JPEG)    [knots-data]
   all        every pipeline stage above (also the default with no args)
+  offline    prepare + sam + train  (everything that builds the model)
+  runtime    infer + eval + viz     (everything that uses out/models/model.onnx)
 
 Examples:
   ./run.sh                     # full pipeline
+  ./run.sh runtime             # infer + eval + viz from an existing model.onnx
   ./run.sh infer               # per-board polygons; reuses out/models/model.onnx
   ./run.sh infer eval viz      # polygons + metrics + reviewer-friendly overlays
   ./run.sh eval                # metrics; rebuilds GT under out/boards/gt/ if missing
@@ -300,6 +317,8 @@ else
         case "$arg" in
             -h|--help) print_help; exit 0 ;;
             all) for s in "${PIPELINE_STAGES[@]}"; do want["$s"]=1; done ;;
+            offline) for s in "${OFFLINE_STAGES[@]}"; do want["$s"]=1; done ;;
+            runtime) for s in "${RUNTIME_STAGES[@]}"; do want["$s"]=1; done ;;
             clean|nuke|prepare|sam|train|infer|viz|eval)
                 want["$arg"]=1 ;;
             *) echo "unknown stage: $arg" >&2; echo >&2; print_help >&2; exit 2 ;;
