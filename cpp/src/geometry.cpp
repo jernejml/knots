@@ -61,8 +61,8 @@ float MaskIou(const Polygon& a, const Polygon& b) {
     return uni > 0.0 ? static_cast<float>(inter / uni) : 0.f;
 }
 
-std::vector<Match> GreedyMatch(const std::vector<Polygon>& preds,
-                                const std::vector<Polygon>& gts, float threshold) {
+std::vector<Match> GreedyMatch(const std::vector<Polygon>& preds, const std::vector<Polygon>& gts,
+                               float threshold) {
     std::vector<cv::Rect> pb, gb;
     pb.reserve(preds.size());
     gb.reserve(gts.size());

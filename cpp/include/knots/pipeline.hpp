@@ -29,8 +29,7 @@ using FramesByBoard = std::map<int, BoardFrames>;
 // `boards_filter` is applied after stem parsing — empty means no filter.
 //
 // Returns FramesByBoard sorted by frame_idx within each board.
-FramesByBoard CollectFramesByBoard(const std::filesystem::path& dir,
-                                   const std::string& extension,
+FramesByBoard CollectFramesByBoard(const std::filesystem::path& dir, const std::string& extension,
                                    const std::vector<std::string>& explicit_stems,
                                    const std::unordered_set<int>& boards_filter);
 
@@ -99,9 +98,7 @@ struct GtStitchStats {
 GtStitchStats StitchGtForBoards(const std::filesystem::path& labels_dir,
                                 const std::filesystem::path& images_dir,
                                 const std::filesystem::path& gt_dir,
-                                const std::unordered_set<int>& boards_filter,
-                                int stride_px,
-                                float simplify_eps_px,
-                                bool force);
+                                const std::unordered_set<int>& boards_filter, int stride_px,
+                                float simplify_eps_px, bool force);
 
 }  // namespace knots::pipeline

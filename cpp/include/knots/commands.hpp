@@ -81,8 +81,8 @@ struct RunArgs {
 };
 
 struct EvalArgs {
-    std::filesystem::path pred_dir;   // required: per-board prediction JSONs
-    std::filesystem::path gt_dir;     // required: per-board GT JSONs
+    std::filesystem::path pred_dir;  // required: per-board prediction JSONs
+    std::filesystem::path gt_dir;    // required: per-board GT JSONs
     BoardsFilter boards;
     std::filesystem::path out_json;
     float match_iou = 0.5f;

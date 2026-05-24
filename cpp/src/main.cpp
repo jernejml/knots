@@ -25,13 +25,12 @@ int main(int argc, char** argv) {
     // One Args struct per subcommand; the matching callback fires after
     // parse and forks into the corresponding CmdXxx implementation.
     knots::RunArgs run_args;
-    auto* run = app.add_subcommand(
-        "run", "per-frame infer + per-board stitch (with optional cache flags)");
+    auto* run =
+        app.add_subcommand("run", "per-frame infer + per-board stitch (with optional cache flags)");
     knots::cli::AddRunOptions(run, run_args);
 
     knots::EvalArgs eval_args;
-    auto* eval = app.add_subcommand(
-        "eval", "compare per-board predictions to GT polygons");
+    auto* eval = app.add_subcommand("eval", "compare per-board predictions to GT polygons");
     knots::cli::AddEvalOptions(eval, eval_args);
 
     // Only the parsed subcommand's callback runs; `rc` holds its return code.

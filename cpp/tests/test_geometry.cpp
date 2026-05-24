@@ -168,8 +168,8 @@ TEST(GreedyMatch, GreedyClaimsHighestIouFirst) {
     // Two preds compete for the same GT; the higher-IoU pred wins, the
     // other gets nothing (no second GT to fall back to).
     Polygon gt = {{0, 0}, {100, 0}, {100, 100}, {0, 100}};
-    Polygon good = {{0, 0}, {100, 0}, {100, 100}, {0, 100}};       // IoU 1.0
-    Polygon weaker = {{50, 0}, {150, 0}, {150, 100}, {50, 100}};   // IoU 1/3
+    Polygon good = {{0, 0}, {100, 0}, {100, 100}, {0, 100}};      // IoU 1.0
+    Polygon weaker = {{50, 0}, {150, 0}, {150, 100}, {50, 100}};  // IoU 1/3
     auto matches = GreedyMatch({weaker, good}, {gt}, 0.1f);
     ASSERT_EQ(matches.size(), 1u);
     EXPECT_EQ(matches[0].pred_idx, 1);
@@ -199,9 +199,7 @@ TEST(F1FromPR, NulloptInputsReturnNullopt) {
     EXPECT_FALSE(F1FromPR(std::nullopt, std::nullopt).has_value());
 }
 
-TEST(F1FromPR, BothZeroReturnsNullopt) {
-    EXPECT_FALSE(F1FromPR(0.0f, 0.0f).has_value());
-}
+TEST(F1FromPR, BothZeroReturnsNullopt) { EXPECT_FALSE(F1FromPR(0.0f, 0.0f).has_value()); }
 
 TEST(F1FromPR, HarmonicMean) {
     // P=0.5, R=0.5 → F1=0.5; P=1, R=0 → F1=0 (avoid div-by-zero exception).
@@ -216,9 +214,7 @@ TEST(F1FromPR, HarmonicMean) {
 
 // -- CountInstancesByIou -----------------------------------------------------
 
-TEST(CountInstancesByIou, EmptyIsZero) {
-    EXPECT_EQ(CountInstancesByIou({}, 0.5f), 0);
-}
+TEST(CountInstancesByIou, EmptyIsZero) { EXPECT_EQ(CountInstancesByIou({}, 0.5f), 0); }
 
 TEST(CountInstancesByIou, SingleBoxIsOne) {
     EXPECT_EQ(CountInstancesByIou({cv::Rect(0, 0, 10, 10)}, 0.5f), 1);

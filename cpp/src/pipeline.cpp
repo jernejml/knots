@@ -25,9 +25,9 @@ namespace {
 // carrying bbox / confidence / class / polygon. The bbox/conf/class are
 // informational (the stitching path uses only the polygon) but live here
 // for debug consumers.
-void WritePerFrameJson(const fs::path& out_path, const std::string& stem,
-                       int img_w, int img_h, const std::string& session_ep,
-                       float conf_threshold, const std::vector<Detection>& dets) {
+void WritePerFrameJson(const fs::path& out_path, const std::string& stem, int img_w, int img_h,
+                       const std::string& session_ep, float conf_threshold,
+                       const std::vector<Detection>& dets) {
     nlohmann::json j;
     j["frame"] = stem;
     j["image_size"] = {img_w, img_h};
@@ -57,7 +57,7 @@ void WritePerFrameJson(const fs::path& out_path, const std::string& stem,
 // (cx, cy, w, h). We check for extra tokens and skip such lines with a
 // per-file warning rather than producing nonsense rectangles.
 std::vector<std::vector<cv::Point>> ParseYoloBboxesAsPolys(const fs::path& label_path, int w,
-                                                          int h) {
+                                                           int h) {
     std::vector<std::vector<cv::Point>> polys;
     std::ifstream f(label_path);
     if (!f) return polys;
@@ -143,8 +143,8 @@ std::vector<FramePolys> InferBoardFrames(Ort::Session& session, const fs::path& 
             const auto t1 = std::chrono::steady_clock::now();
             stats.total_inference_sec += std::chrono::duration<double>(t1 - t0).count();
             if (!dump_per_frame_dir.empty()) {
-                WritePerFrameJson(dump_per_frame_dir / (stem + ".json"), stem,
-                                  image.cols, image.rows, session_ep, conf_threshold, dets);
+                WritePerFrameJson(dump_per_frame_dir / (stem + ".json"), stem, image.cols,
+                                  image.rows, session_ep, conf_threshold, dets);
             }
             FramePolys fp;
             fp.frame_idx = frame_idx;
@@ -168,8 +168,7 @@ std::vector<FramePolys> InferBoardFrames(Ort::Session& session, const fs::path& 
 }
 
 std::vector<FramePolys> LoadBoardFromFrameJsons(const fs::path& jsons_dir,
-                                                const BoardFrames& frames,
-                                                FrameDoneFn frame_done) {
+                                                const BoardFrames& frames, FrameDoneFn frame_done) {
     std::vector<FramePolys> out;
     out.reserve(frames.size());
     for (const auto& [frame_idx, stem] : frames) {
@@ -207,8 +206,8 @@ std::vector<FramePolys> LoadBoardFromFrameJsons(const fs::path& jsons_dir,
 
 GtStitchStats StitchGtForBoards(const fs::path& labels_dir, const fs::path& images_dir,
                                 const fs::path& gt_dir,
-                                const std::unordered_set<int>& boards_filter,
-                                int stride_px, float simplify_eps_px, bool force) {
+                                const std::unordered_set<int>& boards_filter, int stride_px,
+                                float simplify_eps_px, bool force) {
     GtStitchStats stats;
     fs::create_directories(gt_dir);
     const auto by_board = CollectFramesByBoard(labels_dir, ".txt", {}, boards_filter);
@@ -239,8 +238,8 @@ GtStitchStats StitchGtForBoards(const fs::path& labels_dir, const fs::path& imag
         }
         const int distinct_estimate = CountInstancesByIou(boxes, kDuplicateIou);
 
-        stats.total_polys += StitchBoardToJson(board, std::move(fp_list), stride_px,
-                                               simplify_eps_px, out_path);
+        stats.total_polys +=
+            StitchBoardToJson(board, std::move(fp_list), stride_px, simplify_eps_px, out_path);
 
         // Augment the just-written GT JSON with the merge-provenance stats.
         try {

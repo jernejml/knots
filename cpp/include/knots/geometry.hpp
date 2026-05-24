@@ -5,7 +5,6 @@
 // without pulling in ONNX Runtime / I/O dependencies.
 
 #include <opencv2/core.hpp>
-
 #include <optional>
 #include <vector>
 
@@ -38,8 +37,8 @@ struct Match {
 // Greedy bbox-IoU matcher. Sorts all (pred, gt) candidate pairs by descending
 // IoU, claims each pair the first time both sides are unmatched, stops when
 // no pair clears `threshold`. Returns at most min(preds, gts) matches.
-std::vector<Match> GreedyMatch(const std::vector<Polygon>& preds,
-                                const std::vector<Polygon>& gts, float threshold);
+std::vector<Match> GreedyMatch(const std::vector<Polygon>& preds, const std::vector<Polygon>& gts,
+                               float threshold);
 
 // Estimate of distinct instances among `boxes`: union-find clustering that
 // merges two boxes when BboxIou >= `iou_thresh`, returning the component count.

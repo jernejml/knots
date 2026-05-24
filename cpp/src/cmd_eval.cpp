@@ -206,11 +206,11 @@ int CmdEval(const EvalArgs& args_in) {
             if (!args.boards.boards_file.empty()) {
                 boards_filter = cli::ParseBoardsFile(args.boards.boards_file);
             }
-            std::cout << "knots eval: stitching GT from " << args.labels_dir.string()
-                      << " → " << args.gt_dir.string() << " (skip-if-exists)\n";
-            auto gt = pipeline::StitchGtForBoards(
-                args.labels_dir, args.images_dir, args.gt_dir, boards_filter,
-                args.stitch.stride_px, args.stitch.simplify_eps_px, /*force=*/false);
+            std::cout << "knots eval: stitching GT from " << args.labels_dir.string() << " → "
+                      << args.gt_dir.string() << " (skip-if-exists)\n";
+            auto gt = pipeline::StitchGtForBoards(args.labels_dir, args.images_dir, args.gt_dir,
+                                                  boards_filter, args.stitch.stride_px,
+                                                  args.stitch.simplify_eps_px, /*force=*/false);
             std::cout << "  gt: written=" << gt.written << "  skipped=" << gt.skipped
                       << "  polygons=" << gt.total_polys << "\n\n";
         }
@@ -318,9 +318,10 @@ int CmdEval(const EvalArgs& args_in) {
                   << "  mean IoU micro=" << std::fixed << std::setprecision(3) << mean_iou_micro
                   << "  macro=" << std::fixed << std::setprecision(3) << mean_iou_macro << "\n";
         if (any_gt_stats) {
-            const double pct = total_gt_distinct > 0
-                                   ? 100.0 * static_cast<double>(total_merged_away) / total_gt_distinct
-                                   : 0.0;
+            const double pct =
+                total_gt_distinct > 0
+                    ? 100.0 * static_cast<double>(total_merged_away) / total_gt_distinct
+                    : 0.0;
             std::cout << "  union over-merge: " << total_merged_away << " of ~" << total_gt_distinct
                       << " distinct GT knots (" << std::fixed << std::setprecision(1) << pct
                       << "%) fused into a neighbour — P/R/F1 above can't see these\n";

@@ -48,8 +48,7 @@ fs::path WriteTempPartitionsJson(const std::string& content) {
     return p;
 }
 
-const std::string kThreeBoardPartitions =
-    R"({"train": [1], "val": [], "test": [2, 3]})";
+const std::string kThreeBoardPartitions = R"({"train": [1], "val": [], "test": [2, 3]})";
 
 }  // namespace
 
@@ -78,7 +77,5 @@ TEST(LoadBoardsInSplit, UnknownSplitReturnsEmptySet) {
 }
 
 TEST(LoadBoardsInSplit, MissingFileThrows) {
-    EXPECT_THROW(
-        knots::cli::LoadBoardsInSplit("/does/not/exist.json", "test"),
-        std::runtime_error);
+    EXPECT_THROW(knots::cli::LoadBoardsInSplit("/does/not/exist.json", "test"), std::runtime_error);
 }

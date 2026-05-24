@@ -47,8 +47,7 @@ int CmdRun(const RunArgs& args) {
     // -- Argument validation, conditional on which source is in use --
     if (from_cache) {
         if (!fs::is_directory(args.from_frame_jsons_dir)) {
-            std::cerr << "--from-frame-jsons dir not found: "
-                      << args.from_frame_jsons_dir << "\n";
+            std::cerr << "--from-frame-jsons dir not found: " << args.from_frame_jsons_dir << "\n";
             return 1;
         }
     } else {
@@ -79,8 +78,7 @@ int CmdRun(const RunArgs& args) {
             cli::CollectExplicitStems(args.frames.frames, args.frames.frames_file);
         std::unordered_set<int> boards_filter;
         if (!args.splits.partitions_json.empty()) {
-            boards_filter =
-                cli::LoadBoardsInSplit(args.splits.partitions_json, args.splits.split);
+            boards_filter = cli::LoadBoardsInSplit(args.splits.partitions_json, args.splits.split);
             if (boards_filter.empty()) {
                 std::cerr << "warning: no boards match split " << args.splits.split << " in "
                           << args.splits.partitions_json << "\n";
@@ -105,14 +103,11 @@ int CmdRun(const RunArgs& args) {
         std::string ep = "n/a";
         if (!from_cache) {
             env.emplace(ORT_LOGGING_LEVEL_WARNING, "knots");
-            session.emplace(MakeSession(*env, args.inference.model,
-                                        !args.inference.cpu_only, ep));
+            session.emplace(MakeSession(*env, args.inference.model, !args.inference.cpu_only, ep));
         }
 
-        std::cerr << "knots run"
-                  << (from_cache ? " (from-cache)" : "")
-                  << ": " << by_board.size() << " board(s) / " << total_frames
-                  << " frame(s)";
+        std::cerr << "knots run" << (from_cache ? " (from-cache)" : "") << ": " << by_board.size()
+                  << " board(s) / " << total_frames << " frame(s)";
         if (!from_cache) {
             std::cerr << "  ep=" << ep << "  conf=" << args.inference.conf;
         }
@@ -145,12 +140,12 @@ int CmdRun(const RunArgs& args) {
 
             std::vector<FramePolys> fp_list;
             if (from_cache) {
-                fp_list = pipeline::LoadBoardFromFrameJsons(args.from_frame_jsons_dir,
-                                                            frames, frame_done);
+                fp_list = pipeline::LoadBoardFromFrameJsons(args.from_frame_jsons_dir, frames,
+                                                            frame_done);
             } else {
                 fp_list = pipeline::InferBoardFrames(*session, args.input_dir, frames,
-                                                    args.inference.conf, infer_stats,
-                                                    frame_done, args.dump_per_frame_dir, ep);
+                                                     args.inference.conf, infer_stats, frame_done,
+                                                     args.dump_per_frame_dir, ep);
             }
             if (fp_list.empty()) {
                 std::cerr << "  WARN board " << board << ": no usable frames, skipping stitch\n";
@@ -166,8 +161,8 @@ int CmdRun(const RunArgs& args) {
                   << "\n";
         if (!from_cache) {
             std::cerr << "  frames: processed=" << infer_stats.processed
-                      << "  unread=" << infer_stats.unread
-                      << "  failed=" << infer_stats.failed << "\n";
+                      << "  unread=" << infer_stats.unread << "  failed=" << infer_stats.failed
+                      << "\n";
         }
         std::cerr << "  total per-board polygons=" << total_knots << "\n"
                   << "  output dir: " << args.output_dir << "\n";
