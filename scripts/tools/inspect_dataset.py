@@ -17,8 +17,6 @@ Use --board N to restrict to one board, --limit N to cap rows. Not wired
 into run.sh: the pipeline (prepare → train → infer → eval) doesn't need
 this. It exists for human eyeballing when a board misbehaves.
 
-Math salvaged from the deleted analyze_dataset.py.
-
 Run inside the knots-data image:
 
     docker run --rm -v "$PWD/data:/work/data:ro" knots-data \\
@@ -106,14 +104,13 @@ def dark_wood_frac(
 
 def cluster_count(
     boxes: list[tuple[float, float, float, float]],
-    near_T_min_px: float,
-    near_T_rel: float,
+    near_gap_min_px: float,
+    near_gap_rel: float,
 ) -> int:
     """Connected groups of >=2 near-touching annotations.
 
     Two boxes are 'near' when their axial gap is <=
-    max(near_T_min_px, near_T_rel * min(min_dim_a, min_dim_b)). Identical
-    threshold formula to prepare.py and to the deleted analyze_dataset.py.
+    max(near_gap_min_px, near_gap_rel * min(min_dim_a, min_dim_b)).
     """
     n = len(boxes)
     if n < 2:
@@ -137,13 +134,13 @@ def cluster_count(
         return (gx * gx + gy * gy) ** 0.5
 
     for i in range(n):
-        ai = boxes[i]
-        mdi = min(ai[2] - ai[0], ai[3] - ai[1])
+        box_i = boxes[i]
+        min_dim_i = min(box_i[2] - box_i[0], box_i[3] - box_i[1])
         for j in range(i + 1, n):
-            aj = boxes[j]
-            mdj = min(aj[2] - aj[0], aj[3] - aj[1])
-            threshold = max(near_T_min_px, near_T_rel * min(mdi, mdj))
-            if axial_gap(ai, aj) <= threshold:
+            box_j = boxes[j]
+            min_dim_j = min(box_j[2] - box_j[0], box_j[3] - box_j[1])
+            threshold = max(near_gap_min_px, near_gap_rel * min(min_dim_i, min_dim_j))
+            if axial_gap(box_i, box_j) <= threshold:
                 union(i, j)
 
     counts: dict[int, int] = defaultdict(int)
@@ -185,9 +182,9 @@ def main() -> None:
                    help="Upper luminance bound for a dark-wood pixel.")
     p.add_argument("--min-chroma", type=int, default=15,
                    help="Min max(RGB)-min(RGB) for a dark pixel to count as dark wood.")
-    p.add_argument("--near-T-min-px", type=float, default=5.0,
+    p.add_argument("--near-gap-min-px", type=float, default=5.0,
                    help="Floor (px) of the hybrid near-touching threshold.")
-    p.add_argument("--near-T-rel", type=float, default=0.25,
+    p.add_argument("--near-gap-rel", type=float, default=0.25,
                    help="Multiplier of min(min_dim_a, min_dim_b) for the threshold.")
     p.add_argument("--edge-touch-tol-px", type=float, default=1.0,
                    help="Box touches an edge if its distance to that edge is <= this.")
@@ -237,7 +234,7 @@ def main() -> None:
             rgb, lum, strip_top, strip_bot, boxes,
             args.bg_max, args.dark_wood_max, args.min_chroma,
         )
-        n_clust = cluster_count(boxes, args.near_T_min_px, args.near_T_rel)
+        n_clust = cluster_count(boxes, args.near_gap_min_px, args.near_gap_rel)
         n_edge = edge_touch_count(boxes, w, h, args.edge_touch_tol_px)
 
         if prev_board is not None and board != prev_board:
