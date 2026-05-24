@@ -29,6 +29,7 @@ import json
 import random
 import re
 from collections import defaultdict
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 from PIL import Image
@@ -46,6 +47,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 STAGE = "prepare"
 FRAME_RE = re.compile(r"^(?P<board>\d+)_(?P<frame>\d+)\.png$")
 SPLIT_NAMES = ("train", "val", "test")
+
+DEFAULT_STRATIFY: list[tuple[str, list[float]]] = [
+    ("frames", [10.0, 23.0]),
+    ("cluster_frac", [0.0]),
+]
+
+
+@dataclass(frozen=True)
+class BoardFeatures:
+    board: int
+    frames: int
+    cluster_frac: float
 
 
 def rel_to_root(path: Path) -> str:
@@ -154,7 +167,8 @@ def parse_ratios(spec: str) -> tuple[float, float, float]:
     total = sum(parts)
     if total <= 0:
         raise argparse.ArgumentTypeError("--ratios must sum to a positive number")
-    return tuple(p / total for p in parts)
+    train, val, test = (p / total for p in parts)
+    return train, val, test
 
 
 def tier_label(value: float, cuts: list[float]) -> str:
@@ -177,7 +191,7 @@ def largest_remainder(n: int, ratios: tuple[float, float, float]) -> tuple[int, 
     out = list(floors)
     for k in range(remainder):
         out[fractions[k][1]] += 1
-    return tuple(out)
+    return out[0], out[1], out[2]
 
 
 # -- Per-board feature pass -------------------------------------------------
@@ -186,7 +200,7 @@ def compute_board_features(
     data_dir: Path,
     near_gap_min_px: float,
     near_gap_rel: float,
-) -> list[dict]:
+) -> list[BoardFeatures]:
     """Single pass over data/{images,labels}/: one row per board.
 
     Frame dimensions come from the first frame's header (PIL reads it without
@@ -206,7 +220,7 @@ def compute_board_features(
         frames.sort()
 
     boards_sorted = sorted(by_board.items())
-    rows: list[dict] = []
+    rows: list[BoardFeatures] = []
     for board, frames in iter_with_progress(boards_sorted, "boards", every=10):
         with Image.open(frames[0][1]) as im:
             w, h = im.size
@@ -218,18 +232,18 @@ def compute_board_features(
                 cluster_frames += 1
 
         n_frames = len(frames)
-        rows.append({
-            "board": board,
-            "frames": n_frames,
-            "cluster_frac": (cluster_frames / n_frames) if n_frames else 0.0,
-        })
+        rows.append(BoardFeatures(
+            board=board,
+            frames=n_frames,
+            cluster_frac=(cluster_frames / n_frames) if n_frames else 0.0,
+        ))
     return rows
 
 
 # -- Splitter --------------------------------------------------------------
 
 def stratify_and_split(
-    boards: list[dict],
+    boards: list[BoardFeatures],
     stratify_specs: list[tuple[str, list[float]]],
     ratios: tuple[float, float, float],
     seed: int,
@@ -241,45 +255,43 @@ def stratify_and_split(
     assignment is {board_id: split_name}.
     per_stratum_alloc carries the stdout summary (stratum key, total, (nt, nv, nte)).
     """
-    if boards:
-        for fname, _ in stratify_specs:
-            if fname not in boards[0]:
-                raise SystemExit(
-                    f"--stratify feature {fname!r} not in computed columns "
-                    f"({sorted(boards[0])})"
-                )
+    valid_features = {f.name for f in fields(BoardFeatures)}
+    for fname, _ in stratify_specs:
+        if fname not in valid_features:
+            raise SystemExit(
+                f"--stratify feature {fname!r} not in {sorted(valid_features)}"
+            )
 
     assignment: dict[int, str] = {}
-    pool: list[dict] = []
+    pool: list[BoardFeatures] = []
     for b in boards:
-        bid = b["board"]
-        if bid in forced:
-            assignment[bid] = forced[bid]
+        if b.board in forced:
+            assignment[b.board] = forced[b.board]
             continue
-        if b["frames"] <= min_frames_train:
-            assignment[bid] = "train"
+        if b.frames <= min_frames_train:
+            assignment[b.board] = "train"
             continue
         pool.append(b)
 
-    strata: dict[tuple[str, ...], list[dict]] = defaultdict(list)
+    strata: dict[tuple[str, ...], list[BoardFeatures]] = defaultdict(list)
     for b in pool:
-        key = tuple(f"{name}{tier_label(b[name], cuts)}" for name, cuts in stratify_specs)
+        key = tuple(f"{name}{tier_label(getattr(b, name), cuts)}" for name, cuts in stratify_specs)
         strata[key].append(b)
 
     alloc: list[tuple[str, int, tuple[int, int, int]]] = []
     for stratum_key in sorted(strata):
-        boards_in = sorted(strata[stratum_key], key=lambda b: b["board"])
+        boards_in = sorted(strata[stratum_key], key=lambda b: b.board)
         # Seed per stratum so adding or removing one stratum leaves the
         # others' assignments unchanged.
         rng = random.Random(f"{seed}|{'|'.join(stratum_key)}")
         rng.shuffle(boards_in)
         n_train, n_val, n_test = largest_remainder(len(boards_in), ratios)
         for b in boards_in[:n_train]:
-            assignment[b["board"]] = "train"
+            assignment[b.board] = "train"
         for b in boards_in[n_train : n_train + n_val]:
-            assignment[b["board"]] = "val"
+            assignment[b.board] = "val"
         for b in boards_in[n_train + n_val :]:
-            assignment[b["board"]] = "test"
+            assignment[b.board] = "test"
         alloc.append(("/".join(stratum_key), len(boards_in), (n_train, n_val, n_test)))
 
     return assignment, alloc
@@ -296,6 +308,49 @@ def write_partitions(path: Path, assignment: dict[int, str]) -> None:
         grouped[split].sort()
     with path.open("w") as fh:
         json.dump(grouped, fh, indent=2)
+
+
+def print_report(
+    boards: list[BoardFeatures],
+    assignment: dict[int, str],
+    alloc: list[tuple[str, int, tuple[int, int, int]]],
+    stratify_specs: list[tuple[str, list[float]]],
+    forced: dict[int, str],
+    args: argparse.Namespace,
+    out_path: Path,
+) -> None:
+    print(f"  boards={len(boards)}  seed={args.seed}  ratios={args.ratios}  "
+          f"min_frames_train={args.min_frames_train}")
+    print("  stratify:")
+    for name, cuts in stratify_specs:
+        print(f"    {name}: cuts={cuts}")
+    forced_counts = {s: sum(1 for v in forced.values() if v == s) for s in SPLIT_NAMES}
+    auto_train_n = sum(1 for b in boards
+                       if b.board not in forced and b.frames <= args.min_frames_train)
+    print(f"  forced: train={forced_counts['train']} val={forced_counts['val']} "
+          f"test={forced_counts['test']}  auto-train-by-length={auto_train_n}")
+
+    print()
+    print("Per-stratum allocation")
+    header = f"  {'stratum':<48}  {'total':>5}  {'train':>5}  {'val':>5}  {'test':>5}"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    for key, total, (nt, nv, nte) in alloc:
+        print(f"  {key:<48}  {total:>5}  {nt:>5}  {nv:>5}  {nte:>5}")
+        if total < 10:
+            print(f"    warning: stratum has {total} boards; smaller splits may be unreliable.")
+
+    print()
+    print("Totals")
+    frames_by_board = {b.board: b.frames for b in boards}
+    for split in SPLIT_NAMES:
+        ids = [bid for bid, s in assignment.items() if s == split]
+        n_f = sum(frames_by_board[bid] for bid in ids)
+        print(f"  {split:>5}: boards={len(ids):>4}  frames={n_f:>5}")
+    print(f"  total: boards={len(boards):>4}  frames={sum(frames_by_board.values()):>5}")
+
+    print()
+    print(f"written: {rel_to_root(out_path)}")
 
 
 # -- Entrypoint ------------------------------------------------------------
@@ -366,7 +421,7 @@ def main() -> None:
 def _run(args: argparse.Namespace) -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    stratify_specs = args.stratify or [("frames", [10.0, 23.0]), ("cluster_frac", [0.0])]
+    stratify_specs = args.stratify or DEFAULT_STRATIFY
     ratios = parse_ratios(args.ratios)
 
     forced: dict[int, str] = {}
@@ -392,38 +447,7 @@ def _run(args: argparse.Namespace) -> None:
     out_path = args.output_dir / "partitions.json"
     write_partitions(out_path, assignment)
 
-    print(f"  boards={len(boards)}  seed={args.seed}  ratios={args.ratios}  "
-          f"min_frames_train={args.min_frames_train}")
-    print("  stratify:")
-    for name, cuts in stratify_specs:
-        print(f"    {name}: cuts={cuts}")
-    forced_counts = {s: sum(1 for v in forced.values() if v == s) for s in SPLIT_NAMES}
-    auto_train_n = sum(1 for b in boards
-                       if b["board"] not in forced and b["frames"] <= args.min_frames_train)
-    print(f"  forced: train={forced_counts['train']} val={forced_counts['val']} "
-          f"test={forced_counts['test']}  auto-train-by-length={auto_train_n}")
-
-    print()
-    print("Per-stratum allocation")
-    header = f"  {'stratum':<48}  {'total':>5}  {'train':>5}  {'val':>5}  {'test':>5}"
-    print(header)
-    print("  " + "-" * (len(header) - 2))
-    for key, total, (nt, nv, nte) in alloc:
-        print(f"  {key:<48}  {total:>5}  {nt:>5}  {nv:>5}  {nte:>5}")
-        if total < 10:
-            print(f"    warning: stratum has {total} boards; smaller splits may be unreliable.")
-
-    print()
-    print("Totals")
-    frames_by_board = {b["board"]: b["frames"] for b in boards}
-    for split in SPLIT_NAMES:
-        ids = [bid for bid, s in assignment.items() if s == split]
-        n_f = sum(frames_by_board[bid] for bid in ids)
-        print(f"  {split:>5}: boards={len(ids):>4}  frames={n_f:>5}")
-    print(f"  total: boards={len(boards):>4}  frames={sum(frames_by_board.values()):>5}")
-
-    print()
-    print(f"written: {rel_to_root(out_path)}")
+    print_report(boards, assignment, alloc, stratify_specs, forced, args, out_path)
 
 
 if __name__ == "__main__":
