@@ -70,6 +70,7 @@ def rel_to_root(path: Path) -> str:
 
 # -- Label parsing + cluster detection ---------------------------------------
 
+
 def parse_yolo_label(label_path: Path, w: int, h: int) -> list[tuple[float, float, float, float]]:
     """Return pixel-space (x1, y1, x2, y2) tuples; empty list if file missing."""
     if not label_path.exists():
@@ -79,9 +80,7 @@ def parse_yolo_label(label_path: Path, w: int, h: int) -> list[tuple[float, floa
         parts = line.split()
         if len(parts) < 5:
             continue
-        cx_n, cy_n, w_n, h_n = (
-            float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
-        )
+        cx_n, cy_n, w_n, h_n = (float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4]))
         cx, cy, bw, bh = cx_n * w, cy_n * h, w_n * w, h_n * h
         boxes.append((cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2))
     return boxes
@@ -136,6 +135,7 @@ def has_cluster(
 
 
 # -- Stratification helpers --------------------------------------------------
+
 
 def parse_stratify_spec(spec: str) -> tuple[str, list[float]]:
     """Parse 'frames:10,23' into ('frames', [10.0, 23.0])."""
@@ -196,6 +196,7 @@ def largest_remainder(n: int, ratios: tuple[float, float, float]) -> tuple[int, 
 
 # -- Per-board feature pass -------------------------------------------------
 
+
 def compute_board_features(
     data_dir: Path,
     near_gap_min_px: float,
@@ -232,15 +233,18 @@ def compute_board_features(
                 cluster_frames += 1
 
         n_frames = len(frames)
-        rows.append(BoardFeatures(
-            board=board,
-            frames=n_frames,
-            cluster_frac=(cluster_frames / n_frames) if n_frames else 0.0,
-        ))
+        rows.append(
+            BoardFeatures(
+                board=board,
+                frames=n_frames,
+                cluster_frac=(cluster_frames / n_frames) if n_frames else 0.0,
+            )
+        )
     return rows
 
 
 # -- Splitter --------------------------------------------------------------
+
 
 def stratify_and_split(
     boards: list[BoardFeatures],
@@ -258,9 +262,7 @@ def stratify_and_split(
     valid_features = {f.name for f in fields(BoardFeatures)}
     for fname, _ in stratify_specs:
         if fname not in valid_features:
-            raise SystemExit(
-                f"--stratify feature {fname!r} not in {sorted(valid_features)}"
-            )
+            raise SystemExit(f"--stratify feature {fname!r} not in {sorted(valid_features)}")
 
     assignment: dict[int, str] = {}
     pool: list[BoardFeatures] = []
@@ -299,6 +301,7 @@ def stratify_and_split(
 
 # -- I/O -------------------------------------------------------------------
 
+
 def write_partitions(path: Path, assignment: dict[int, str]) -> None:
     """Write {"train": [...], "val": [...], "test": [...]} with board IDs sorted."""
     grouped: dict[str, list[int]] = {s: [] for s in SPLIT_NAMES}
@@ -319,16 +322,21 @@ def print_report(
     args: argparse.Namespace,
     out_path: Path,
 ) -> None:
-    print(f"  boards={len(boards)}  seed={args.seed}  ratios={args.ratios}  "
-          f"min_frames_train={args.min_frames_train}")
+    print(
+        f"  boards={len(boards)}  seed={args.seed}  ratios={args.ratios}  "
+        f"min_frames_train={args.min_frames_train}"
+    )
     print("  stratify:")
     for name, cuts in stratify_specs:
         print(f"    {name}: cuts={cuts}")
     forced_counts = {s: sum(1 for v in forced.values() if v == s) for s in SPLIT_NAMES}
-    auto_train_n = sum(1 for b in boards
-                       if b.board not in forced and b.frames <= args.min_frames_train)
-    print(f"  forced: train={forced_counts['train']} val={forced_counts['val']} "
-          f"test={forced_counts['test']}  auto-train-by-length={auto_train_n}")
+    auto_train_n = sum(
+        1 for b in boards if b.board not in forced and b.frames <= args.min_frames_train
+    )
+    print(
+        f"  forced: train={forced_counts['train']} val={forced_counts['val']} "
+        f"test={forced_counts['test']}  auto-train-by-length={auto_train_n}"
+    )
 
     print()
     print("Per-stratum allocation")
@@ -355,6 +363,7 @@ def print_report(
 
 # -- Entrypoint ------------------------------------------------------------
 
+
 def main() -> None:
     pre = argparse.ArgumentParser(add_help=False)
     add_config_arg(pre)
@@ -366,48 +375,71 @@ def main() -> None:
     )
     add_config_arg(p)
     p.add_argument(
-        "--data-dir", type=Path, default=REPO_ROOT / "data",
+        "--data-dir",
+        type=Path,
+        default=REPO_ROOT / "data",
         help="Read-only input dir containing images/ and labels/.",
     )
     p.add_argument(
-        "--output-dir", type=Path, default=REPO_ROOT / "out" / "analysis",
+        "--output-dir",
+        type=Path,
+        default=REPO_ROOT / "out" / "analysis",
         help="Where partitions.json is written.",
     )
     p.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="RNG seed; the only knob that changes the random portion of the split.",
     )
     p.add_argument(
-        "--ratios", type=str, default="80,10,10",
+        "--ratios",
+        type=str,
+        default="80,10,10",
         help="Comma-separated train,val,test percentages.",
     )
     p.add_argument(
-        "--stratify", action="append", type=parse_stratify_spec, default=None,
+        "--stratify",
+        action="append",
+        type=parse_stratify_spec,
+        default=None,
         help="Stratification axis as FEATURE:cut1[,cut2,...]. Repeatable. "
         "Default: 'frames:10,23' and 'cluster_frac:0'.",
     )
     p.add_argument(
-        "--min-frames-train", type=int, default=3,
+        "--min-frames-train",
+        type=int,
+        default=3,
         help="Boards with frames <= this go straight to train.",
     )
     p.add_argument(
-        "--force-train", type=parse_id_list, default=[],
+        "--force-train",
+        type=parse_id_list,
+        default=[],
         help="Comma-separated board IDs pinned to train.",
     )
     p.add_argument(
-        "--force-val", type=parse_id_list, default=[],
+        "--force-val",
+        type=parse_id_list,
+        default=[],
         help="Comma-separated board IDs pinned to val.",
     )
     p.add_argument(
-        "--force-test", type=parse_id_list, default=[],
+        "--force-test",
+        type=parse_id_list,
+        default=[],
         help="Comma-separated board IDs pinned to test.",
     )
     p.add_argument(
-        "--near-gap-min-px", type=float, default=5.0,
+        "--near-gap-min-px",
+        type=float,
+        default=5.0,
         help="Floor (px) of the hybrid near-touching threshold.",
     )
     p.add_argument(
-        "--near-gap-rel", type=float, default=0.25,
+        "--near-gap-rel",
+        type=float,
+        default=0.25,
         help="Multiplier of min(min_dim_a, min_dim_b) for the hybrid threshold.",
     )
     apply_config_defaults(p, load_config_section(pre_args.config, STAGE))

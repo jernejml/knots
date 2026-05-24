@@ -84,9 +84,7 @@ def apply_config_defaults(parser: argparse.ArgumentParser, cfg: dict[str, Any]) 
     actions_by_dest = {a.dest: a for a in parser._actions if a.dest != argparse.SUPPRESS}
     unknown = sorted(set(cfg) - set(actions_by_dest))
     if unknown:
-        raise SystemExit(
-            f"--config: unknown keys {unknown}; known: {sorted(actions_by_dest)}"
-        )
+        raise SystemExit(f"--config: unknown keys {unknown}; known: {sorted(actions_by_dest)}")
     coerced: dict[str, Any] = {}
     for k, v in cfg.items():
         action = actions_by_dest[k]
@@ -187,12 +185,18 @@ def _git_sha() -> str | None:
     repo = Path(__file__).resolve().parents[1]
     try:
         sha = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=repo, text=True, timeout=2,
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            text=True,
+            timeout=2,
             stderr=subprocess.DEVNULL,
         ).strip()
         dirty = bool(
             subprocess.check_output(
-                ["git", "status", "--porcelain"], cwd=repo, text=True, timeout=2,
+                ["git", "status", "--porcelain"],
+                cwd=repo,
+                text=True,
+                timeout=2,
                 stderr=subprocess.DEVNULL,
             ).strip()
         )

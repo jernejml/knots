@@ -111,12 +111,8 @@ def parse_args() -> argparse.Namespace:
         default=(255, 0, 0),
         help="RGB triple for GT polygon outlines (default '255,0,0', red).",
     )
-    p.add_argument(
-        "--line-width", type=int, default=3, help="Polygon outline thickness in pixels."
-    )
-    p.add_argument(
-        "--jpeg-quality", type=int, default=92, help="JPEG quality 1-100 (default 92)."
-    )
+    p.add_argument("--line-width", type=int, default=3, help="Polygon outline thickness in pixels.")
+    p.add_argument("--jpeg-quality", type=int, default=92, help="JPEG quality 1-100 (default 92).")
     p.add_argument(
         "--force",
         action="store_true",

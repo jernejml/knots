@@ -222,19 +222,25 @@ def main() -> None:
     )
     # -- ONNX export knobs (the export runs as the last step of this script) --
     ap.add_argument(
-        "--opset", type=int, default=17,
+        "--opset",
+        type=int,
+        default=17,
         help="ONNX opset version for the export; 17 has wider runtime compatibility than 19+.",
     )
     ap.add_argument(
-        "--simplify", action="store_true",
+        "--simplify",
+        action="store_true",
         help="Run onnxslim on the exported graph (requires onnxslim installed).",
     )
     ap.add_argument(
-        "--export-device", default="cpu",
+        "--export-device",
+        default="cpu",
         help="Device for the ONNX export; CPU is fine and avoids GPU init.",
     )
     ap.add_argument(
-        "--export-weights", choices=("best", "last"), default="last",
+        "--export-weights",
+        choices=("best", "last"),
+        default="last",
         help="Which checkpoint to export: 'best' (highest val fitness) or 'last' "
         "(final epoch). Default 'last' — val labels are SAM pseudo-labels, so the "
         "best-val selection signal is weak.",
@@ -276,27 +282,35 @@ def main() -> None:
         # in-memory weights, which hold the final epoch regardless of choice.
         checkpoint = Path(getattr(model.trainer, args.export_weights))
 
-        print(f"\nexporting {args.export_weights} checkpoint {rel_to_root(checkpoint)} → ONNX "
-              f"(opset={args.opset}, simplify={args.simplify}, device={args.export_device})")
+        print(
+            f"\nexporting {args.export_weights} checkpoint {rel_to_root(checkpoint)} → ONNX "
+            f"(opset={args.opset}, simplify={args.simplify}, device={args.export_device})"
+        )
         export_model = YOLO(str(checkpoint))
-        exported = Path(export_model.export(
-            format="onnx",
-            imgsz=args.imgsz,
-            opset=args.opset,
-            simplify=args.simplify,
-            dynamic=False,
-            half=False,
-            nms=True,
-            device=args.export_device,
-        ))
+        exported = Path(
+            export_model.export(
+                format="onnx",
+                imgsz=args.imgsz,
+                opset=args.opset,
+                simplify=args.simplify,
+                dynamic=False,
+                half=False,
+                nms=True,
+                device=args.export_device,
+            )
+        )
         size_mb = exported.stat().st_size / 1e6
         print(f"exported → {rel_to_root(exported)}  ({size_mb:.1f} MB)")
         refresh_latest_onnx_link(exported)
-        print(f"latest pointer: {rel_to_root(LATEST_ONNX_LINK)} → "
-              f"{os.readlink(LATEST_ONNX_LINK)}")
+        print(
+            f"latest pointer: {rel_to_root(LATEST_ONNX_LINK)} → " f"{os.readlink(LATEST_ONNX_LINK)}"
+        )
 
     save_run_meta(
-        save_dir, STAGE, args, elapsed_sec=timing["elapsed_sec"],
+        save_dir,
+        STAGE,
+        args,
+        elapsed_sec=timing["elapsed_sec"],
         extra={
             "export_weights": args.export_weights,
             "source_checkpoint": rel_to_root(checkpoint),

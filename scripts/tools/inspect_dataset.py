@@ -46,9 +46,7 @@ def parse_yolo_bboxes(label_path: Path, w: int, h: int) -> list[tuple[float, flo
         parts = line.split()
         if len(parts) < 5:
             continue
-        cx_n, cy_n, w_n, h_n = (
-            float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
-        )
+        cx_n, cy_n, w_n, h_n = (float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4]))
         cx, cy, bw, bh = cx_n * w, cy_n * h, w_n * w, h_n * h
         boxes.append((cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2))
     return boxes
@@ -84,7 +82,7 @@ def dark_wood_frac(
         return 0.0
     h, w = lum.shape
     annot_mask = np.zeros((h, w), dtype=bool)
-    for (x1, y1, x2, y2) in boxes:
+    for x1, y1, x2, y2 in boxes:
         xi1 = max(0, int(np.floor(x1)))
         yi1 = max(0, int(np.floor(y1)))
         xi2 = min(w, int(np.ceil(x2)))
@@ -157,7 +155,7 @@ def edge_touch_count(
 ) -> int:
     """Boxes within `tol` px of any frame edge."""
     n_touch = 0
-    for (x1, y1, x2, y2) in boxes:
+    for x1, y1, x2, y2 in boxes:
         if x1 <= tol or (w - x2) <= tol or y1 <= tol or (h - y2) <= tol:
             n_touch += 1
     return n_touch
@@ -168,26 +166,55 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data",
-                   help="Read-only input dir containing images/ and labels/.")
-    p.add_argument("--board", type=int, default=None,
-                   help="Restrict to one board. Default: every board.")
-    p.add_argument("--limit", type=int, default=0,
-                   help="Stop after N frames (0 = no limit).")
-    p.add_argument("--bg-max", type=int, default=30,
-                   help="Pixels with luminance <= this count as background.")
-    p.add_argument("--row-bright-frac", type=float, default=0.5,
-                   help="Row is 'wood' if >= this fraction of its pixels > bg-max.")
-    p.add_argument("--dark-wood-max", type=int, default=120,
-                   help="Upper luminance bound for a dark-wood pixel.")
-    p.add_argument("--min-chroma", type=int, default=15,
-                   help="Min max(RGB)-min(RGB) for a dark pixel to count as dark wood.")
-    p.add_argument("--near-gap-min-px", type=float, default=5.0,
-                   help="Floor (px) of the hybrid near-touching threshold.")
-    p.add_argument("--near-gap-rel", type=float, default=0.25,
-                   help="Multiplier of min(min_dim_a, min_dim_b) for the threshold.")
-    p.add_argument("--edge-touch-tol-px", type=float, default=1.0,
-                   help="Box touches an edge if its distance to that edge is <= this.")
+    p.add_argument(
+        "--data-dir",
+        type=Path,
+        default=REPO_ROOT / "data",
+        help="Read-only input dir containing images/ and labels/.",
+    )
+    p.add_argument(
+        "--board", type=int, default=None, help="Restrict to one board. Default: every board."
+    )
+    p.add_argument("--limit", type=int, default=0, help="Stop after N frames (0 = no limit).")
+    p.add_argument(
+        "--bg-max", type=int, default=30, help="Pixels with luminance <= this count as background."
+    )
+    p.add_argument(
+        "--row-bright-frac",
+        type=float,
+        default=0.5,
+        help="Row is 'wood' if >= this fraction of its pixels > bg-max.",
+    )
+    p.add_argument(
+        "--dark-wood-max",
+        type=int,
+        default=120,
+        help="Upper luminance bound for a dark-wood pixel.",
+    )
+    p.add_argument(
+        "--min-chroma",
+        type=int,
+        default=15,
+        help="Min max(RGB)-min(RGB) for a dark pixel to count as dark wood.",
+    )
+    p.add_argument(
+        "--near-gap-min-px",
+        type=float,
+        default=5.0,
+        help="Floor (px) of the hybrid near-touching threshold.",
+    )
+    p.add_argument(
+        "--near-gap-rel",
+        type=float,
+        default=0.25,
+        help="Multiplier of min(min_dim_a, min_dim_b) for the threshold.",
+    )
+    p.add_argument(
+        "--edge-touch-tol-px",
+        type=float,
+        default=1.0,
+        help="Box touches an edge if its distance to that edge is <= this.",
+    )
     args = p.parse_args()
 
     images_dir = args.data_dir / "images"
@@ -231,8 +258,14 @@ def main() -> None:
 
         boxes = parse_yolo_bboxes(labels_dir / f"{board}_{frame}.txt", w, h)
         dark = dark_wood_frac(
-            rgb, lum, strip_top, strip_bot, boxes,
-            args.bg_max, args.dark_wood_max, args.min_chroma,
+            rgb,
+            lum,
+            strip_top,
+            strip_bot,
+            boxes,
+            args.bg_max,
+            args.dark_wood_max,
+            args.min_chroma,
         )
         n_clust = cluster_count(boxes, args.near_gap_min_px, args.near_gap_rel)
         n_edge = edge_touch_count(boxes, w, h, args.edge_touch_tol_px)
