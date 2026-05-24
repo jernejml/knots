@@ -1,35 +1,25 @@
 #!/usr/bin/env python3
-"""Stratified train/val/test partition of boards — single-stage dataset prep.
+"""Stratified train/val/test partition of boards.
 
-Walks data/{images,labels}/ once and produces the only artefact downstream
-stages consume from this on-ramp:
+Walks data/{images,labels}/ once and writes the split assignment that every
+downstream stage reads:
 
     out/analysis/partitions.json
-
-The shape is split-keyed lists of board IDs:
-
     {"train": [1, 4, 5, ...], "val": [2, 6, ...], "test": [0, 3, ...]}
 
-Replaces the older analyze_dataset.py → board_features.py → make_splits.py
-chain. The per-frame / per-annotation JSONs the chain used to write were
-only consumed by the next stage in the chain; nothing else read them.
-Stratification still happens on (frames, cluster_frac) but the only thing
-this script computes per board is the two features it needs:
+Stratification balances two per-board features across the splits:
 
     frames        number of labelled frames for the board
-    cluster_frac  fraction of frames containing >=1 cluster of 2+
-                  near-touching annotations (axial-gap union-find,
-                  threshold = max(near_T_min_px, near_T_rel * min_dim))
+    cluster_frac  fraction of frames with >=1 cluster of 2+ near-touching
+                  annotations
 
-The split unit is the BOARD, not the frame: the 50% frame overlap means a
-knot annotated in frame N is annotated again in frame N+1, so any frame-
-level split would leak knots between train/val/test.
+The split unit is the board, not the frame: frames overlap 50%, so a knot in
+frame N is annotated again in frame N+1 and a frame-level split would leak the
+same knot across train/val/test.
 
-Reproducibility: same --seed + same inputs + same flags ⇒ identical output.
+Reproducible: same --seed, inputs, and flags produce identical output.
 
-For richer per-frame / per-annotation inspection (geometry, darkness,
-edge-touch counts, size buckets, contrast), see scripts/tools/inspect_dataset.py
-— a manual debug tool, not part of the pipeline.
+See scripts/tools/inspect_dataset.py for richer per-annotation inspection.
 """
 
 from __future__ import annotations
@@ -65,10 +55,7 @@ def rel_to_root(path: Path) -> str:
         return str(path)
 
 
-# -- Label parsing + cluster detection --------------------------------------
-# Just enough of analyze_dataset.py to compute cluster_frac. We don't need
-# the per-annotation features (size buckets, edge distances, contrast); the
-# old pipeline computed them but they were never consumed by make_splits.
+# -- Label parsing + cluster detection ---------------------------------------
 
 def parse_yolo_label(label_path: Path, w: int, h: int) -> list[tuple[float, float, float, float]]:
     """Return pixel-space (x1, y1, x2, y2) tuples; empty list if file missing."""
@@ -95,15 +82,13 @@ def _axial_gap(a: tuple[float, float, float, float], b: tuple[float, float, floa
 
 def has_cluster(
     boxes: list[tuple[float, float, float, float]],
-    near_T_min_px: float,
-    near_T_rel: float,
+    near_gap_min_px: float,
+    near_gap_rel: float,
 ) -> bool:
-    """True iff at least one connected group of >=2 near-touching boxes exists.
+    """True if at least one connected group of >=2 near-touching boxes exists.
 
-    Two boxes are 'near' when their axial gap ≤ max(near_T_min_px,
-    near_T_rel * min(min_dim_a, min_dim_b)). Same formula as the original
-    analyze_dataset.py.cluster_metrics — we just collapse the rich output
-    (touching_pairs, near_pairs, cluster sizes, …) to a single bool.
+    Two boxes are 'near' when their axial gap <= max(near_gap_min_px,
+    near_gap_rel * min(min_dim_a, min_dim_b)).
     """
     n = len(boxes)
     if n < 2:
@@ -122,13 +107,13 @@ def has_cluster(
             parent[rx] = ry
 
     for i in range(n):
-        ai = boxes[i]
-        mdi = min(ai[2] - ai[0], ai[3] - ai[1])
+        box_i = boxes[i]
+        min_dim_i = min(box_i[2] - box_i[0], box_i[3] - box_i[1])
         for j in range(i + 1, n):
-            aj = boxes[j]
-            mdj = min(aj[2] - aj[0], aj[3] - aj[1])
-            threshold = max(near_T_min_px, near_T_rel * min(mdi, mdj))
-            if _axial_gap(ai, aj) <= threshold:
+            box_j = boxes[j]
+            min_dim_j = min(box_j[2] - box_j[0], box_j[3] - box_j[1])
+            threshold = max(near_gap_min_px, near_gap_rel * min(min_dim_i, min_dim_j))
+            if _axial_gap(box_i, box_j) <= threshold:
                 union(i, j)
 
     counts: dict[int, int] = defaultdict(int)
@@ -137,7 +122,7 @@ def has_cluster(
     return any(s >= 2 for s in counts.values())
 
 
-# -- Stratification helpers (ported verbatim from make_splits.py) ----------
+# -- Stratification helpers --------------------------------------------------
 
 def parse_stratify_spec(spec: str) -> tuple[str, list[float]]:
     """Parse 'frames:10,23' into ('frames', [10.0, 23.0])."""
@@ -188,7 +173,7 @@ def largest_remainder(n: int, ratios: tuple[float, float, float]) -> tuple[int, 
     floors = [int(x) for x in raw]
     remainder = n - sum(floors)
     fractions = [(raw[i] - floors[i], i) for i in range(3)]
-    fractions.sort(key=lambda fi: (-fi[0], fi[1]))
+    fractions.sort(key=lambda frac_idx: (-frac_idx[0], frac_idx[1]))
     out = list(floors)
     for k in range(remainder):
         out[fractions[k][1]] += 1
@@ -199,16 +184,13 @@ def largest_remainder(n: int, ratios: tuple[float, float, float]) -> tuple[int, 
 
 def compute_board_features(
     data_dir: Path,
-    near_T_min_px: float,
-    near_T_rel: float,
+    near_gap_min_px: float,
+    near_gap_rel: float,
 ) -> list[dict]:
-    """Single pass over data/{images,labels}/: returns one row per board.
+    """Single pass over data/{images,labels}/: one row per board.
 
-    Image pixels are never decoded — PIL's lazy header read gives us frame
-    dims without touching pixel data. Heights vary by board but are
-    effectively constant within a board (mixed-height frames inside one
-    board were flagged as an anomaly by the old pipeline; we ignore that
-    edge case since cluster_frac shifts only marginally if it occurs).
+    Frame dimensions come from the first frame's header (PIL reads it without
+    decoding pixels) and are assumed constant within a board.
     """
     images_dir = data_dir / "images"
     labels_dir = data_dir / "labels"
@@ -226,14 +208,13 @@ def compute_board_features(
     boards_sorted = sorted(by_board.items())
     rows: list[dict] = []
     for board, frames in iter_with_progress(boards_sorted, "boards", every=10):
-        # One header read per board for (w, h). Constant within a board.
         with Image.open(frames[0][1]) as im:
             w, h = im.size
 
         cluster_frames = 0
         for frame_idx, _ in frames:
             boxes = parse_yolo_label(labels_dir / f"{board}_{frame_idx}.txt", w, h)
-            if has_cluster(boxes, near_T_min_px, near_T_rel):
+            if has_cluster(boxes, near_gap_min_px, near_gap_rel):
                 cluster_frames += 1
 
         n_frames = len(frames)
@@ -269,7 +250,6 @@ def stratify_and_split(
                 )
 
     assignment: dict[int, str] = {}
-    auto_train: list[int] = []
     pool: list[dict] = []
     for b in boards:
         bid = b["board"]
@@ -278,7 +258,6 @@ def stratify_and_split(
             continue
         if b["frames"] <= min_frames_train:
             assignment[bid] = "train"
-            auto_train.append(bid)
             continue
         pool.append(b)
 
@@ -290,9 +269,8 @@ def stratify_and_split(
     alloc: list[tuple[str, int, tuple[int, int, int]]] = []
     for stratum_key in sorted(strata):
         boards_in = sorted(strata[stratum_key], key=lambda b: b["board"])
-        # Per-stratum seeded RNG: same seed → same shuffle regardless of
-        # which other strata exist. Lets you add/remove a stratum without
-        # disturbing the others' assignments.
+        # Seed per stratum so adding or removing one stratum leaves the
+        # others' assignments unchanged.
         rng = random.Random(f"{seed}|{'|'.join(stratum_key)}")
         rng.shuffle(boards_in)
         n_train, n_val, n_test = largest_remainder(len(boards_in), ratios)
@@ -370,11 +348,11 @@ def main() -> None:
         help="Comma-separated board IDs pinned to test.",
     )
     p.add_argument(
-        "--near-T-min-px", type=float, default=5.0,
+        "--near-gap-min-px", type=float, default=5.0,
         help="Floor (px) of the hybrid near-touching threshold.",
     )
     p.add_argument(
-        "--near-T-rel", type=float, default=0.25,
+        "--near-gap-rel", type=float, default=0.25,
         help="Multiplier of min(min_dim_a, min_dim_b) for the hybrid threshold.",
     )
     apply_config_defaults(p, load_config_section(pre_args.config, STAGE))
@@ -391,7 +369,6 @@ def _run(args: argparse.Namespace) -> None:
     stratify_specs = args.stratify or [("frames", [10.0, 23.0]), ("cluster_frac", [0.0])]
     ratios = parse_ratios(args.ratios)
 
-    # Forced-overrides conflict check.
     forced: dict[int, str] = {}
     for split_name, ids in (
         ("train", args.force_train),
@@ -404,7 +381,7 @@ def _run(args: argparse.Namespace) -> None:
             forced[bid] = split_name
 
     print(f"prepare: scanning {rel_to_root(args.data_dir)}/")
-    boards = compute_board_features(args.data_dir, args.near_T_min_px, args.near_T_rel)
+    boards = compute_board_features(args.data_dir, args.near_gap_min_px, args.near_gap_rel)
     if not boards:
         raise SystemExit("no boards found under data/images/")
 
@@ -415,7 +392,6 @@ def _run(args: argparse.Namespace) -> None:
     out_path = args.output_dir / "partitions.json"
     write_partitions(out_path, assignment)
 
-    # Stdout summary.
     print(f"  boards={len(boards)}  seed={args.seed}  ratios={args.ratios}  "
           f"min_frames_train={args.min_frames_train}")
     print("  stratify:")

@@ -13,8 +13,8 @@
 seed             = 42
 ratios           = "80,10,10"
 min_frames_train = 3
-near_T_min_px    = 5.0
-near_T_rel       = 0.25
+near_gap_min_px  = 5.0
+near_gap_rel     = 0.25
 # Repeatable --stratify flag: TOML list of strings, each parsed by argparse.
 stratify         = ["frames:10,23", "cluster_frac:0"]
 
