@@ -1,8 +1,9 @@
 #pragma once
 
 // Shared per-board inference / GT-load loops used by `knots run` and
-// `knots gt-stitch`. Each function operates on one board's frames and
-// returns FramePolys ready for StitchBoardPolygons.
+// `knots eval` (the latter for its inline GT rebuild). Each function
+// operates on one board's frames and returns FramePolys ready for
+// StitchBoardPolygons.
 
 #include <onnxruntime_cxx_api.h>
 
@@ -80,5 +81,27 @@ std::vector<FramePolys> LoadBoardFromFrameJsons(const std::filesystem::path& jso
 std::vector<FramePolys> LoadGtBoardFrames(const std::filesystem::path& labels_dir,
                                           const std::filesystem::path& images_dir,
                                           const BoardFrames& frames);
+
+// One-shot per-board GT stitching. Walks labels_dir for {board}_{frame}.txt
+// files, groups by board, runs LoadGtBoardFrames + StitchBoardToJson for
+// each board into gt_dir/{board}.json. boards_filter restricts the boards
+// processed (empty = all). Existing gt_dir/{board}.json files are skipped
+// unless `force` is true.
+//
+// Called by `knots eval` when --labels-dir / --images-dir are passed, so
+// eval can rebuild missing GT on the fly without a separate gt-stitch step.
+struct GtStitchStats {
+    size_t written = 0;
+    size_t skipped = 0;
+    size_t total_polys = 0;
+};
+
+GtStitchStats StitchGtForBoards(const std::filesystem::path& labels_dir,
+                                const std::filesystem::path& images_dir,
+                                const std::filesystem::path& gt_dir,
+                                const std::unordered_set<int>& boards_filter,
+                                int stride_px,
+                                float simplify_eps_px,
+                                bool force);
 
 }  // namespace knots::pipeline

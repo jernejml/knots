@@ -87,25 +87,4 @@ bool ParseFrameStem(const std::string& stem, int& board, int& frame_idx) {
     }
 }
 
-std::unordered_set<int> BuildBoardsFilter(const std::vector<int>& boards,
-                                          const std::filesystem::path& boards_file,
-                                          const std::filesystem::path& partitions_json,
-                                          const std::string& split) {
-    std::unordered_set<int> filter(boards.begin(), boards.end());
-    if (!boards_file.empty()) filter = ParseBoardsFile(boards_file);
-    if (!partitions_json.empty()) {
-        auto split_boards = LoadBoardsInSplit(partitions_json, split);
-        if (filter.empty()) {
-            filter = std::move(split_boards);
-        } else {
-            std::unordered_set<int> isect;
-            for (int b : filter) {
-                if (split_boards.count(b)) isect.insert(b);
-            }
-            filter = std::move(isect);
-        }
-    }
-    return filter;
-}
-
 }  // namespace knots::cli

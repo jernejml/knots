@@ -72,27 +72,12 @@ void AddRunOptions(CLI::App* app, RunArgs& args) {
     app->add_flag("--force", args.force, "overwrite existing per-board outputs");
 }
 
-void AddGtStitchOptions(CLI::App* app, GtStitchArgs& args) {
-    app->add_option("--labels-dir", args.labels_dir,
-                    "YOLO bbox labels (per-frame .txt)")
-        ->required();
-    app->add_option("--images-dir", args.images_dir,
-                    "frame PNGs (for frame dimensions)")
-        ->required();
-    app->add_option("--output-dir", args.output_dir, "per-board GT JSONs")
-        ->required();
-    AddStitchOpts(app, args.stitch);
-    AddBoardsFilterOpts(app, args.boards);
-    AddSplitsFilterOpts(app, args.splits);
-    app->add_flag("--force", args.force, "overwrite existing outputs");
-}
-
 void AddEvalOptions(CLI::App* app, EvalArgs& args) {
     app->add_option("--pred-dir", args.pred_dir,
                     "per-board prediction JSONs (output of `knots run`)")
         ->required();
     app->add_option("--gt-dir", args.gt_dir,
-                    "per-board GT JSONs (output of `knots gt-stitch`)")
+                    "per-board GT JSONs (rebuilt from --labels-dir if missing)")
         ->required();
     AddBoardsFilterOpts(app, args.boards);
     app->add_option("--out", args.out_json,
@@ -102,6 +87,15 @@ void AddEvalOptions(CLI::App* app, EvalArgs& args) {
         ->capture_default_str();
     app->add_flag("--no-write", args.no_write,
                   "skip JSON output; print to stdout only");
+
+    // Optional GT rebuild. Pass both to enable; eval will stitch any
+    // missing per-board GT JSONs from labels before comparing.
+    app->add_option("--labels-dir", args.labels_dir,
+                    "YOLO bbox labels; if set with --images-dir, GT is "
+                    "stitched into --gt-dir for any boards missing it");
+    app->add_option("--images-dir", args.images_dir,
+                    "frame PNGs (for frame dimensions; only used with --labels-dir)");
+    AddStitchOpts(app, args.stitch);
 }
 
 }  // namespace knots::cli

@@ -36,11 +36,7 @@ TEST(ParseFrameStem, RejectsMalformed) {
     EXPECT_FALSE(knots::cli::ParseFrameStem("", board, frame));
 }
 
-// -- BuildBoardsFilter (the precedence-fix from item 1) ----------------------
-//
-// `boards` is the parsed vector from --boards (CLI11's `->delimiter(',')`
-// transform handles the CSV split, so BuildBoardsFilter no longer parses
-// strings). Tests pass the parsed form directly.
+// -- LoadBoardsInSplit (JSON reader used by cmd_run for --split filtering) ---
 
 namespace {
 
@@ -57,46 +53,32 @@ const std::string kThreeBoardPartitions =
 
 }  // namespace
 
-TEST(BuildBoardsFilter, AllFlagsEmptyReturnsEmpty) {
-    auto f = knots::cli::BuildBoardsFilter({}, "", "", "");
-    EXPECT_TRUE(f.empty());
-}
-
-TEST(BuildBoardsFilter, OnlyBoardsListIsUsedDirectly) {
-    auto f = knots::cli::BuildBoardsFilter({1, 2, 3}, "", "", "");
-    EXPECT_EQ(f.size(), 3u);
-    EXPECT_TRUE(f.count(1));
-    EXPECT_TRUE(f.count(2));
-    EXPECT_TRUE(f.count(3));
-}
-
-TEST(BuildBoardsFilter, OnlyPartitionsJsonReturnsThoseBoards) {
+TEST(LoadBoardsInSplit, ReturnsBoardsForNamedSplit) {
     auto json = WriteTempPartitionsJson(kThreeBoardPartitions);
-    auto f = knots::cli::BuildBoardsFilter({}, "", json, "test");
-    EXPECT_EQ(f.size(), 2u);
-    EXPECT_TRUE(f.count(2));
-    EXPECT_TRUE(f.count(3));
+    auto s = knots::cli::LoadBoardsInSplit(json, "test");
+    EXPECT_EQ(s.size(), 2u);
+    EXPECT_TRUE(s.count(2));
+    EXPECT_TRUE(s.count(3));
     fs::remove(json);
 }
 
-TEST(BuildBoardsFilter, BoardsListIntersectsWithSplit) {
-    // --boards passes 1,2,3 — but --split test only has 2,3. Intersection = {2,3}.
+TEST(LoadBoardsInSplit, EmptyArrayReturnsEmptySet) {
     auto json = WriteTempPartitionsJson(kThreeBoardPartitions);
-    auto f = knots::cli::BuildBoardsFilter({1, 2, 3}, "", json, "test");
-    EXPECT_EQ(f.size(), 2u);
-    EXPECT_TRUE(f.count(2));
-    EXPECT_TRUE(f.count(3));
-    EXPECT_FALSE(f.count(1));
+    auto s = knots::cli::LoadBoardsInSplit(json, "val");
+    EXPECT_TRUE(s.empty());
     fs::remove(json);
 }
 
-TEST(BuildBoardsFilter, BoardsListDisjointFromSplitEmptyIntersection) {
-    // --boards selects only board 1 (train); --split test → empty intersection.
-    // Crucially, this is NOT the same as "no filter": the result is an
-    // explicitly empty filter that should restrict everything downstream.
-    // Documenting this behaviour so any future refactor preserves it.
+TEST(LoadBoardsInSplit, UnknownSplitReturnsEmptySet) {
+    // Unknown split name is treated as 'no boards' (caller decides what to do).
     auto json = WriteTempPartitionsJson(kThreeBoardPartitions);
-    auto f = knots::cli::BuildBoardsFilter({1}, "", json, "test");
-    EXPECT_TRUE(f.empty());
+    auto s = knots::cli::LoadBoardsInSplit(json, "nonexistent");
+    EXPECT_TRUE(s.empty());
     fs::remove(json);
+}
+
+TEST(LoadBoardsInSplit, MissingFileThrows) {
+    EXPECT_THROW(
+        knots::cli::LoadBoardsInSplit("/does/not/exist.json", "test"),
+        std::runtime_error);
 }

@@ -37,6 +37,7 @@
 #include "knots/cli_util.hpp"
 #include "knots/commands.hpp"
 #include "knots/geometry.hpp"
+#include "knots/pipeline.hpp"
 
 namespace fs = std::filesystem;
 
@@ -156,7 +157,36 @@ int CmdEval(const EvalArgs& args_in) {
         args.out_json = fs::path("out") / "analysis" / "eval_boards.json";
     }
 
+    // --labels-dir + --images-dir are paired; either both set or neither.
+    const bool rebuild_gt = !args.labels_dir.empty() || !args.images_dir.empty();
+    if (rebuild_gt && (args.labels_dir.empty() || args.images_dir.empty())) {
+        std::cerr << "--labels-dir and --images-dir must be set together (GT rebuild)\n";
+        return 2;
+    }
+
     try {
+        // Rebuild missing per-board GT before the comparison if asked.
+        if (rebuild_gt) {
+            if (!fs::is_directory(args.labels_dir)) {
+                throw std::runtime_error("missing labels dir: " + args.labels_dir.string());
+            }
+            if (!fs::is_directory(args.images_dir)) {
+                throw std::runtime_error("missing images dir: " + args.images_dir.string());
+            }
+            std::unordered_set<int> boards_filter(args.boards.boards.begin(),
+                                                  args.boards.boards.end());
+            if (!args.boards.boards_file.empty()) {
+                boards_filter = cli::ParseBoardsFile(args.boards.boards_file);
+            }
+            std::cout << "knots eval: stitching GT from " << args.labels_dir.string()
+                      << " → " << args.gt_dir.string() << " (skip-if-exists)\n";
+            auto gt = pipeline::StitchGtForBoards(
+                args.labels_dir, args.images_dir, args.gt_dir, boards_filter,
+                args.stitch.stride_px, args.stitch.simplify_eps_px, /*force=*/false);
+            std::cout << "  gt: written=" << gt.written << "  skipped=" << gt.skipped
+                      << "  polygons=" << gt.total_polys << "\n\n";
+        }
+
         auto data = CollectData(args);
         if (data.empty()) {
             std::cerr << "no boards to evaluate (empty intersection)\n";

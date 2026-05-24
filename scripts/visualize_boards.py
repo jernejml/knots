@@ -3,7 +3,7 @@
 
 For each <board>.json under --pred-dir, this script:
 
-  * Reads the per-board polygon list (output of `knots run` or `knots stitch`).
+  * Reads the per-board polygon list (output of `knots run`).
   * Loads the source frame PNGs for that board from --images-dir.
   * Stitches them into one wide image of size board_width x board_height
     (board_* are taken from the pred JSON, computed by the C++ stitcher).
@@ -78,13 +78,13 @@ def parse_args() -> argparse.Namespace:
         "--pred-dir",
         type=Path,
         default=REPO_ROOT / "out" / "boards" / "pred",
-        help="Per-board prediction JSONs (output of `knots run` / `knots stitch`).",
+        help="Per-board prediction JSONs (output of `knots run`).",
     )
     p.add_argument(
         "--gt-dir",
         type=Path,
         default=REPO_ROOT / "out" / "boards" / "gt",
-        help="Per-board GT JSONs (output of `knots gt-stitch`). "
+        help="Per-board GT JSONs (rebuilt by `knots eval --labels-dir`). "
         "If missing/empty, output is pred-only.",
     )
     p.add_argument(
@@ -161,7 +161,7 @@ def stitch_board_image(
 
 
 def load_polygons(board_json: Path) -> list[list[tuple[int, int]]]:
-    """Read the per-board JSON written by `knots stitch` / `knots gt-stitch`."""
+    """Read the per-board JSON written by `knots run` / `knots eval`."""
     with board_json.open() as f:
         data = json.load(f)
     out: list[list[tuple[int, int]]] = []

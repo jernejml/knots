@@ -35,20 +35,4 @@ bool ParseFrameStem(const std::string& stem, int& board, int& frame_idx);
 std::vector<std::string> CollectExplicitStems(const std::vector<std::string>& frames,
                                               const std::filesystem::path& frames_file);
 
-// Compose the board-id filter from the three flag groups every subcommand
-// exposes. Semantics:
-//   1. --boards LIST and --boards-file PATH are alternatives; if both are set
-//      the file wins (last-write semantics).
-//   2. --partitions-json + --split intersect with whatever the previous step
-//      set. If no --boards/--boards-file was given, the split set is the
-//      filter.
-//   3. Empty result means "no filter" (all boards admitted) — only when no
-//      flag was passed; an explicit but empty intersection is still empty.
-//
-// Used by `knots gt-stitch`.
-std::unordered_set<int> BuildBoardsFilter(const std::vector<int>& boards,
-                                          const std::filesystem::path& boards_file,
-                                          const std::filesystem::path& partitions_json,
-                                          const std::string& split);
-
 }  // namespace knots::cli

@@ -8,9 +8,8 @@
 #   sam        sam_polygons.py                   [knots-train, GPU]
 #   train      train_yolo.py (incl. ONNX export) [knots-train, GPU]
 #   infer      knots run (per-board polygons)    [knots-infer, GPU]
-#   gt         knots gt-stitch (per-board GT)    [knots-infer]
+#   eval       knots eval (rebuilds GT + metrics)[knots-infer]
 #   viz        stitched board overlays (JPEG)    [knots-data]
-#   eval       knots eval (metrics)              [knots-infer]
 #
 # infer and eval map to the two task-brief deliverables: infer produces
 # "polygon bounds of all knots on each individual board" (writes
@@ -18,11 +17,10 @@
 # outputs to already annotated scans" (writes eval_boards.json next to the
 # latest train run, or under out/analysis/ if there isn't one).
 #
-# eval consumes the per-board JSONs that infer (out/boards/pred/) and gt
-# (out/boards/gt/) write. Inference runs exactly once per pipeline pass and
-# eval is cheap (seconds, no GPU). The catch:
-# ./run.sh eval alone fails unless both upstream stages have run — use
-# ./run.sh infer gt eval, or ./run.sh all.
+# eval consumes the per-board JSONs that infer writes (out/boards/pred/) and
+# rebuilds the matching per-board GT (out/boards/gt/) from raw labels in the
+# same pass. Inference runs exactly once per pipeline pass and eval is cheap
+# (seconds, no GPU). ./run.sh eval needs infer to have run first.
 #
 # Usage:
 #   ./run.sh                       # full pipeline (all pipeline stages)
@@ -97,7 +95,7 @@ TRAIN_NAME_ARGS=()
 
 # Canonical order. clean/nuke run before any pipeline work; `all` expands to
 # the pipeline subset only (you have to ask for clean/nuke explicitly).
-PIPELINE_STAGES=(prepare sam train infer gt viz eval)
+PIPELINE_STAGES=(prepare sam train infer eval viz)
 ALL_STAGES=(clean nuke "${PIPELINE_STAGES[@]}")
 
 # Map each pipeline stage to the docker image it needs. clean/nuke don't
@@ -107,9 +105,8 @@ declare -A STAGE_IMAGE=(
     [sam]=knots-train
     [train]=knots-train
     [infer]=knots-infer
-    [gt]=knots-infer
-    [viz]=knots-data
     [eval]=knots-infer
+    [viz]=knots-data
 )
 
 CLEAN_TARGETS=(out cpp/build scripts/__pycache__ .ruff_cache)
@@ -214,27 +211,6 @@ stage_infer() {
     log "done — per-board polygons in out/boards/pred/"
 }
 
-stage_gt() {
-    # Per-board GT polygons from per-frame YOLO bboxes. Same raster-union
-    # pipeline as `knots stitch` so pred and GT outputs are directly
-    # comparable. No GPU needed — `knots gt-stitch` is pure CV+IO.
-    local splits_args=()
-    if [[ "$SPLIT" != "all" ]]; then
-        splits_args=(--partitions-json /work/out/analysis/partitions.json --split "$SPLIT")
-    fi
-    log "knots gt-stitch: per-board GT polygons, split=$SPLIT"
-    docker run --rm \
-        -v "$PWD/data:/work/data:ro" \
-        -v "$PWD/out:/work/out" \
-        -v "$PWD/configs:/work/configs:ro" \
-        knots-infer knots gt-stitch \
-        --labels-dir /work/data/labels \
-        --images-dir /work/data/images \
-        --output-dir /work/out/boards/gt \
-        "${splits_args[@]}"
-    log "done — per-board GT polygons in out/boards/gt/"
-}
-
 stage_viz() {
     # Reviewer-friendly per-board JPEGs: source frames stitched into one wide
     # image with predicted polygons (green) and GT polygons (red) overlaid.
@@ -250,10 +226,11 @@ stage_viz() {
 }
 
 stage_eval() {
-    # Compare out/boards/pred/ (from `infer`) with out/boards/gt/ (from `gt`).
-    # No model, no inference, no GPU — just bbox match + mask IoU on the
-    # already-stitched per-board JSONs. Cheap; safe to re-run while tweaking
-    # thresholds.
+    # Compare out/boards/pred/ (from `infer`) with out/boards/gt/. Eval
+    # rebuilds GT from data/labels into out/boards/gt before comparing
+    # (skip-if-exists), so a separate gt-stitch step is no longer needed.
+    # No model, no inference, no GPU — bbox match + mask IoU on the cached
+    # per-board JSONs. Cheap; safe to re-run while tweaking thresholds.
     #
     # Locate the training run dir so the eval JSON co-locates with the
     # weights/ONNX/run_meta_*.json files. If nothing's there, eval falls
@@ -264,12 +241,15 @@ stage_eval() {
         eval_out_args=(--out "/work/${run_dir}/eval_boards.json")
     fi
 
-    log "knots eval: compare out/boards/pred and out/boards/gt"
+    log "knots eval: rebuild GT + compare against out/boards/pred"
     docker run --rm \
+        -v "$PWD/data:/work/data:ro" \
         -v "$PWD/out:/work/out" \
         knots-infer knots eval \
         --pred-dir /work/out/boards/pred \
         --gt-dir /work/out/boards/gt \
+        --labels-dir /work/data/labels \
+        --images-dir /work/data/images \
         "${eval_out_args[@]}"
 
     if [[ -n "$run_dir" ]]; then
@@ -292,16 +272,15 @@ Stages (canonical order; tokens may be given in any order on the command line):
   sam        sam_polygons.py                   [knots-train, GPU]
   train      train_yolo.py (incl. ONNX export) [knots-train, GPU]
   infer      knots run (per-board polygons)    [knots-infer, GPU]
-  gt         knots gt-stitch (per-board GT)    [knots-infer]
+  eval       knots eval (rebuilds GT + metrics)[knots-infer]
   viz        stitched board overlays (JPEG)    [knots-data]
-  eval       knots eval (metrics)              [knots-infer]
   all        every pipeline stage above (also the default with no args)
 
 Examples:
   ./run.sh                     # full pipeline
   ./run.sh infer               # per-board polygons; reuses out/models/best.onnx
-  ./run.sh infer gt viz        # polygons + GT + reviewer-friendly overlays
-  ./run.sh eval                # metrics from out/boards/{pred,gt}/ (cheap)
+  ./run.sh infer eval viz      # polygons + metrics + reviewer-friendly overlays
+  ./run.sh eval                # metrics; rebuilds GT under out/boards/gt/ if missing
   ./run.sh train infer eval    # re-train (re-exports ONNX), re-run both modes
   ./run.sh clean all           # wipe artefacts, then re-run from zero
   FORCE=1 ./run.sh clean       # skip the destructive-action prompt (CI)
@@ -321,7 +300,7 @@ else
         case "$arg" in
             -h|--help) print_help; exit 0 ;;
             all) for s in "${PIPELINE_STAGES[@]}"; do want["$s"]=1; done ;;
-            clean|nuke|prepare|sam|train|infer|gt|viz|eval)
+            clean|nuke|prepare|sam|train|infer|viz|eval)
                 want["$arg"]=1 ;;
             *) echo "unknown stage: $arg" >&2; echo >&2; print_help >&2; exit 2 ;;
         esac

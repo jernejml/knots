@@ -72,17 +72,32 @@ The two main outputs:
   `eval_boards.json` (aggregate precision / recall / F1 / mean mask IoU,
   greedy bbox-IoU matching at 0.5).
 
-To run the test mode against an arbitrary annotated directory:
+Test mode against an arbitrary annotated directory is two steps: predict
+polygons, then compare. `eval` rebuilds the per-board GT from the raw
+bbox labels in the same pass (no separate gt-stitch step).
 
 ```bash
+# 1. predicted polygons from the model
 docker run --rm --gpus all \
   -v /path/to/test/data:/work/data:ro \
   -v "$PWD/out:/work/out" \
-  knots-infer knots eval \
+  knots-infer knots run \
     --model /work/out/models/best.onnx \
-    --images-dir /work/data/images \
-    --labels-dir /work/data/labels
+    --input-dir /work/data/images \
+    --output-dir /work/out/boards/pred
+
+# 2. compare against GT (stitched on the fly from the labels)
+docker run --rm \
+  -v /path/to/test/data:/work/data:ro \
+  -v "$PWD/out:/work/out" \
+  knots-infer knots eval \
+    --pred-dir /work/out/boards/pred \
+    --gt-dir   /work/out/boards/gt \
+    --labels-dir /work/data/labels \
+    --images-dir /work/data/images
 ```
+
+Equivalently, with the data at `./data/`: `./run.sh infer eval`.
 
 ## 3. Architecture
 
@@ -102,11 +117,14 @@ Runtime (uses out/models/best.onnx)
 
   data/images/ ──► infer ──► out/boards/pred/<board>.json
                                             │
-  data/labels/ ──► gt    ──► out/boards/gt/<board>.json
+  data/labels/ ─────────────────────────────┤
+                                            ▼
+                                          eval ──► out/boards/gt/<board>.json
+                                            │       (rebuilds GT inline)
                                             │
-                                            ├──► viz  ──► out/boards/viz/<board>.jpg
+                                            ├──► eval_boards.json
                                             │
-                                            └──► eval ──► eval_boards.json
+                                            └──► viz ──► out/boards/viz/<board>.jpg
 ```
 
 Stages at a glance:
@@ -118,15 +136,15 @@ Stages at a glance:
 - `train`     YOLOv11-seg fine-tuning on those polygons; exports `best.pt`
               to `best.onnx` in the same step
 - `infer`     per-board predicted polygons from the trained model
-- `gt`        per-board ground-truth polygons from the original bboxes
-              (same stitching path as `infer`, so the two are directly
-              comparable)
+- `eval`      precision / recall / F1 / IoU comparing pred vs GT. Stitches
+              per-board GT from raw bbox labels (`out/boards/gt/`) as a
+              precondition, using the same stitching primitive as `infer`
+              so pred and GT are directly comparable
 - `viz`       per-board JPEG with pred (green) and GT (red) overlays
-- `eval`      precision / recall / F1 / IoU comparing pred vs GT
+              (opportunistic: drops the GT layer if `out/boards/gt/` is empty)
 
-`infer` and `gt` are independent. `eval` consumes both: bbox-IoU greedy
-matching + per-pair mask IoU on the cached per-board polygons. No inference
-at eval time, no GPU.
+`eval` runs after `infer`. Bbox-IoU greedy matching + per-pair mask IoU on
+the cached per-board polygons. No inference at eval time, no GPU.
 
 ### Docker images
 
@@ -134,7 +152,7 @@ at eval time, no GPU.
 |---|---|---|
 | `knots-data` | Python 3.13 slim + NumPy / SciPy / Pillow | prepare, viz |
 | `knots-train` | PyTorch 2.7 + CUDA 12.8 + Ultralytics (YOLO + SAM2) | sam, train |
-| `knots-infer` | CUDA 12.8 + cuDNN + ONNX Runtime GPU + the `knots` C++ binary | infer, gt, eval |
+| `knots-infer` | CUDA 12.8 + cuDNN + ONNX Runtime GPU + the `knots` C++ binary | infer, eval |
 
 ### Generated artefacts (`out/`)
 

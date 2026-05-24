@@ -204,6 +204,28 @@ std::vector<FramePolys> LoadBoardFromFrameJsons(const fs::path& jsons_dir,
     return out;
 }
 
+GtStitchStats StitchGtForBoards(const fs::path& labels_dir, const fs::path& images_dir,
+                                const fs::path& gt_dir,
+                                const std::unordered_set<int>& boards_filter,
+                                int stride_px, float simplify_eps_px, bool force) {
+    GtStitchStats stats;
+    fs::create_directories(gt_dir);
+    const auto by_board = CollectFramesByBoard(labels_dir, ".txt", {}, boards_filter);
+    for (const auto& [board, frames] : by_board) {
+        fs::path out_path = gt_dir / (std::to_string(board) + ".json");
+        if (fs::exists(out_path) && !force) {
+            ++stats.skipped;
+            continue;
+        }
+        auto fp_list = LoadGtBoardFrames(labels_dir, images_dir, frames);
+        if (fp_list.empty()) continue;
+        stats.total_polys += StitchBoardToJson(board, std::move(fp_list), stride_px,
+                                               simplify_eps_px, out_path);
+        ++stats.written;
+    }
+    return stats;
+}
+
 std::vector<FramePolys> LoadGtBoardFrames(const fs::path& labels_dir, const fs::path& images_dir,
                                           const BoardFrames& frames) {
     std::vector<FramePolys> out;
