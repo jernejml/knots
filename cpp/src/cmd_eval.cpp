@@ -1,22 +1,26 @@
-// `knots eval` — test mode. Compares two dirs of stitched per-board JSONs:
+// `knots eval` — test mode. Compares two dirs of stitched per-board JSONs
+// (predictions vs ground truth):
 //
-//   knots eval --pred-dir P --gt-dir G [opts]
+//   knots eval --pred-dir P --gt-dir G [--labels-dir L --images-dir I] [opts]
 //
-//   1. For each board, compute pairwise bbox IoU between prediction and GT
-//      polygons.
-//   2. Greedy-match at args.match_iou: pop the highest-IoU pair, mark both
-//      sides as matched, repeat until no pair remains above threshold.
-//   3. For each matched pair, compute mask IoU by rasterising both polygons
-//      onto a shared ROI mask via cv::fillPoly.
+//   1. If --labels-dir / --images-dir are given, first (re)stitch any missing
+//      per-board GT into --gt-dir from the raw YOLO bbox labels.
+//   2. For each board, greedy-match prediction and GT polygons by bbox IoU at
+//      args.match_iou (highest-IoU pair first, until none clears threshold).
+//   3. For each matched pair, compute mask IoU by rasterising both polygons.
 //   4. Count TP / FP / FN; derive P / R / F1 and mean IoU.
 //
 // Per-board rows print to stdout; a JSON dump is written unless --no-write.
 //
-// GT-side note: GT polygons are derived from per-frame YOLO bboxes projected
-// and unioned by the same raster-union pipeline used for the predictions.
-// Mask IoU therefore tops out below 1.0 even for a perfect detection — the
-// metric reflects relative model quality given that GT shape, not absolute
-// knot-edge agreement.
+// Two caveats this report surfaces, both rooted in how GT is built (per-frame
+// YOLO bboxes projected and fused by the same raster-union as predictions):
+//   - Mask IoU tops out below 1.0 even for a perfect detection, since GT shape
+//     is a union of rectangles, not the true knot edge.
+//   - The union also fuses distinct-but-touching knots into one polygon. The
+//     `gtMrg` column / `gt_merged_away` field report how many distinct GT knots
+//     (estimated by IoU-clustering the raw annotations, in the GT stitch step)
+//     the union swallowed — P / R / F1 are blind to those, because GT lost them
+//     too.
 
 #include <algorithm>
 #include <cmath>
@@ -45,7 +49,11 @@ namespace knots {
 
 namespace {
 
-using BoardPolygons = std::pair<std::vector<Polygon>, std::vector<Polygon>>;  // (preds, gts)
+struct BoardData {
+    std::vector<Polygon> preds;
+    std::vector<Polygon> gts;
+    std::optional<int> gt_distinct;  // gt_stats.distinct_estimate, if the GT JSON has it
+};
 
 std::set<int> ListBoardIds(const fs::path& dir) {
     std::set<int> out;
@@ -64,11 +72,15 @@ std::set<int> ListBoardIds(const fs::path& dir) {
     return out;
 }
 
-std::vector<Polygon> LoadBoardPolygonsFromJson(const fs::path& path) {
+nlohmann::json ReadJson(const fs::path& path) {
     std::ifstream f(path);
     if (!f) throw std::runtime_error("cannot open " + path.string());
     nlohmann::json j;
     f >> j;
+    return j;
+}
+
+std::vector<Polygon> PolygonsFromJson(const nlohmann::json& j) {
     std::vector<Polygon> out;
     if (!j.contains("knots")) return out;
     for (const auto& k : j["knots"]) {
@@ -80,6 +92,17 @@ std::vector<Polygon> LoadBoardPolygonsFromJson(const fs::path& path) {
         if (poly.size() >= 3) out.push_back(std::move(poly));
     }
     return out;
+}
+
+// gt_stats.distinct_estimate, written by the GT stitch step. Absent on GT JSONs
+// produced before that step existed; eval then just omits the merge delta.
+std::optional<int> ReadDistinctEstimate(const nlohmann::json& j) {
+    if (!j.contains("gt_stats")) return std::nullopt;
+    const auto& s = j["gt_stats"];
+    if (!s.contains("distinct_estimate") || !s["distinct_estimate"].is_number_integer()) {
+        return std::nullopt;
+    }
+    return s["distinct_estimate"].get<int>();
 }
 
 nlohmann::json OptToJson(std::optional<float> v) {
@@ -105,13 +128,15 @@ struct BoardResult {
     std::optional<float> recall;
     std::optional<float> f1;
     float mean_iou;
+    std::optional<int> gt_distinct;     // estimated distinct physical knots in GT
+    std::optional<int> gt_merged_away;  // gt_distinct - gt_count (union over-merge), if known
     std::vector<float> matched_ious;
 };
 
 // Load per-board polygons from two directories of JSON; return only boards
 // present in both, intersected with the optional --boards / --boards-file
 // filter.
-std::map<int, BoardPolygons> CollectData(const EvalArgs& args) {
+std::map<int, BoardData> CollectData(const EvalArgs& args) {
     if (!fs::is_directory(args.pred_dir)) {
         throw std::runtime_error("missing pred dir: " + args.pred_dir.string());
     }
@@ -139,12 +164,15 @@ std::map<int, BoardPolygons> CollectData(const EvalArgs& args) {
     std::unordered_set<int> filter(args.boards.boards.begin(), args.boards.boards.end());
     if (!args.boards.boards_file.empty()) filter = cli::ParseBoardsFile(args.boards.boards_file);
 
-    std::map<int, BoardPolygons> data;
+    std::map<int, BoardData> data;
     for (int board : common) {
         if (!filter.empty() && !filter.count(board)) continue;
-        auto preds = LoadBoardPolygonsFromJson(args.pred_dir / (std::to_string(board) + ".json"));
-        auto gts = LoadBoardPolygonsFromJson(args.gt_dir / (std::to_string(board) + ".json"));
-        data.emplace(board, BoardPolygons{std::move(preds), std::move(gts)});
+        const auto gt_json = ReadJson(args.gt_dir / (std::to_string(board) + ".json"));
+        BoardData bd;
+        bd.preds = PolygonsFromJson(ReadJson(args.pred_dir / (std::to_string(board) + ".json")));
+        bd.gts = PolygonsFromJson(gt_json);
+        bd.gt_distinct = ReadDistinctEstimate(gt_json);
+        data.emplace(board, std::move(bd));
     }
     return data;
 }
@@ -201,8 +229,8 @@ int CmdEval(const EvalArgs& args_in) {
         std::vector<BoardResult> per_board;
         per_board.reserve(data.size());
         for (const auto& [board, bp] : data) {
-            const auto& preds = bp.first;
-            const auto& gts = bp.second;
+            const auto& preds = bp.preds;
+            const auto& gts = bp.gts;
             const auto matches = GreedyMatch(preds, gts, args.match_iou);
 
             BoardResult r;
@@ -212,6 +240,10 @@ int CmdEval(const EvalArgs& args_in) {
             r.tp = static_cast<int>(matches.size());
             r.fp = r.pred_count - r.tp;
             r.fn = r.gt_count - r.tp;
+            r.gt_distinct = bp.gt_distinct;
+            if (bp.gt_distinct) {
+                r.gt_merged_away = std::max(0, *bp.gt_distinct - r.gt_count);
+            }
 
             double iou_sum = 0.0;
             r.matched_ious.reserve(matches.size());
@@ -229,6 +261,8 @@ int CmdEval(const EvalArgs& args_in) {
 
         // Aggregate.
         long total_pred = 0, total_gt = 0, total_tp = 0, total_fp = 0, total_fn = 0;
+        long total_gt_distinct = 0, total_merged_away = 0;
+        bool any_gt_stats = false;
         double all_iou_sum = 0.0;
         size_t all_iou_n = 0;
         double per_board_iou_sum = 0.0;
@@ -239,6 +273,11 @@ int CmdEval(const EvalArgs& args_in) {
             total_tp += b.tp;
             total_fp += b.fp;
             total_fn += b.fn;
+            if (b.gt_distinct) {
+                total_gt_distinct += *b.gt_distinct;
+                total_merged_away += b.gt_merged_away.value_or(0);
+                any_gt_stats = true;
+            }
             for (float v : b.matched_ious) {
                 all_iou_sum += v;
                 ++all_iou_n;
@@ -257,7 +296,7 @@ int CmdEval(const EvalArgs& args_in) {
 
         // Stdout table.
         const std::string header =
-            "  board  pred    gt    tp    fp    fn       P       R      F1    mIoU";
+            "  board  pred    gt    tp    fp    fn       P       R      F1    mIoU  gtMrg";
         std::cout << header << "\n";
         std::cout << std::string(header.size(), '-') << "\n";
         for (const auto& b : per_board) {
@@ -266,7 +305,9 @@ int CmdEval(const EvalArgs& args_in) {
                       << std::setw(4) << b.fp << "  " << std::setw(4) << b.fn << "  "
                       << std::setw(6) << FmtOpt(b.precision) << "  " << std::setw(6)
                       << FmtOpt(b.recall) << "  " << std::setw(6) << FmtOpt(b.f1) << "   "
-                      << std::fixed << std::setprecision(3) << b.mean_iou << "\n";
+                      << std::fixed << std::setprecision(3) << b.mean_iou << "  " << std::setw(5)
+                      << (b.gt_merged_away ? std::to_string(*b.gt_merged_away) : std::string("-"))
+                      << "\n";
         }
         std::cout << "\nAggregate\n"
                   << "  boards=" << per_board.size() << "  match-iou=" << args.match_iou << "\n"
@@ -276,6 +317,14 @@ int CmdEval(const EvalArgs& args_in) {
                   << "\n"
                   << "  mean IoU micro=" << std::fixed << std::setprecision(3) << mean_iou_micro
                   << "  macro=" << std::fixed << std::setprecision(3) << mean_iou_macro << "\n";
+        if (any_gt_stats) {
+            const double pct = total_gt_distinct > 0
+                                   ? 100.0 * static_cast<double>(total_merged_away) / total_gt_distinct
+                                   : 0.0;
+            std::cout << "  union over-merge: " << total_merged_away << " of ~" << total_gt_distinct
+                      << " distinct GT knots (" << std::fixed << std::setprecision(1) << pct
+                      << "%) fused into a neighbour — P/R/F1 above can't see these\n";
+        }
 
         if (!args.no_write) {
             nlohmann::json out;
@@ -292,6 +341,10 @@ int CmdEval(const EvalArgs& args_in) {
                 {"f1", OptToJson(agg_f1)},
                 {"mean_iou_micro", mean_iou_micro},
                 {"mean_iou_macro", mean_iou_macro},
+                {"gt_distinct_total",
+                 any_gt_stats ? nlohmann::json(total_gt_distinct) : nlohmann::json(nullptr)},
+                {"gt_merged_away_total",
+                 any_gt_stats ? nlohmann::json(total_merged_away) : nlohmann::json(nullptr)},
             };
             out["per_board"] = nlohmann::json::array();
             for (const auto& b : per_board) {
@@ -306,6 +359,10 @@ int CmdEval(const EvalArgs& args_in) {
                 jb["recall"] = OptToJson(b.recall);
                 jb["f1"] = OptToJson(b.f1);
                 jb["mean_iou"] = b.mean_iou;
+                jb["gt_distinct_estimate"] =
+                    b.gt_distinct ? nlohmann::json(*b.gt_distinct) : nlohmann::json(nullptr);
+                jb["gt_merged_away"] =
+                    b.gt_merged_away ? nlohmann::json(*b.gt_merged_away) : nlohmann::json(nullptr);
                 jb["matched_ious"] = nlohmann::json::array();
                 for (float v : b.matched_ious) {
                     jb["matched_ious"].push_back(std::round(v * 10000.f) / 10000.f);

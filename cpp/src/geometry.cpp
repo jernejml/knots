@@ -97,6 +97,33 @@ std::vector<Match> GreedyMatch(const std::vector<Polygon>& preds,
     return out;
 }
 
+int CountInstancesByIou(const std::vector<cv::Rect>& boxes, float iou_thresh) {
+    const int n = static_cast<int>(boxes.size());
+    if (n == 0) return 0;
+    std::vector<int> parent(n);
+    for (int i = 0; i < n; ++i) parent[i] = i;
+    auto find = [&](int x) {
+        while (parent[x] != x) {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        return x;
+    };
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            if (BboxIou(boxes[i], boxes[j]) >= iou_thresh) {
+                const int ri = find(i), rj = find(j);
+                if (ri != rj) parent[ri] = rj;
+            }
+        }
+    }
+    int components = 0;
+    for (int i = 0; i < n; ++i) {
+        if (find(i) == i) ++components;
+    }
+    return components;
+}
+
 std::optional<float> SafeDiv(double num, double den) {
     if (den <= 0.0) return std::nullopt;
     return static_cast<float>(num / den);

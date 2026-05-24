@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "knots/cli_util.hpp"
+#include "knots/geometry.hpp"
 #include "knots/inference.hpp"
 
 namespace fs = std::filesystem;
@@ -219,8 +220,45 @@ GtStitchStats StitchGtForBoards(const fs::path& labels_dir, const fs::path& imag
         }
         auto fp_list = LoadGtBoardFrames(labels_dir, images_dir, frames);
         if (fp_list.empty()) continue;
+
+        // Estimate distinct physical knots *before* the raster-union fuses
+        // them: project every per-frame bbox into board space, then cluster by
+        // IoU so cross-frame duplicates of one knot collapse while distinct-
+        // but-adjacent knots stay separate. Comparing this to the union polygon
+        // count tells a reviewer how many distinct knots the union merged away.
+        constexpr float kDuplicateIou = 0.5f;
+        std::vector<cv::Rect> boxes;
+        int raw_annotations = 0;
+        for (const auto& fp : fp_list) {
+            for (const auto& poly : fp.polygons) {
+                cv::Rect r = PolygonBbox(poly);
+                r.x += fp.frame_idx * stride_px;
+                boxes.push_back(r);
+                ++raw_annotations;
+            }
+        }
+        const int distinct_estimate = CountInstancesByIou(boxes, kDuplicateIou);
+
         stats.total_polys += StitchBoardToJson(board, std::move(fp_list), stride_px,
                                                simplify_eps_px, out_path);
+
+        // Augment the just-written GT JSON with the merge-provenance stats.
+        try {
+            nlohmann::json j;
+            {
+                std::ifstream f(out_path);
+                f >> j;
+            }
+            j["gt_stats"] = {
+                {"raw_annotations", raw_annotations},
+                {"distinct_estimate", distinct_estimate},
+            };
+            std::ofstream f(out_path);
+            f << j.dump(2);
+        } catch (const std::exception& e) {
+            std::cerr << "  WARN board " << board << ": could not write gt_stats: " << e.what()
+                      << "\n";
+        }
         ++stats.written;
     }
     return stats;

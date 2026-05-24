@@ -7,6 +7,7 @@
 #include "knots/geometry.hpp"
 
 using knots::BboxIou;
+using knots::CountInstancesByIou;
 using knots::F1FromPR;
 using knots::GreedyMatch;
 using knots::MaskIou;
@@ -211,4 +212,55 @@ TEST(F1FromPR, HarmonicMean) {
     v = F1FromPR(0.8f, 0.6f);
     ASSERT_TRUE(v.has_value());
     EXPECT_NEAR(*v, 2.0f * 0.8f * 0.6f / (0.8f + 0.6f), 1e-5);
+}
+
+// -- CountInstancesByIou -----------------------------------------------------
+
+TEST(CountInstancesByIou, EmptyIsZero) {
+    EXPECT_EQ(CountInstancesByIou({}, 0.5f), 0);
+}
+
+TEST(CountInstancesByIou, SingleBoxIsOne) {
+    EXPECT_EQ(CountInstancesByIou({cv::Rect(0, 0, 10, 10)}, 0.5f), 1);
+}
+
+TEST(CountInstancesByIou, IdenticalBoxesCollapse) {
+    // Two identical boxes (IoU 1.0) are one instance — the cross-frame
+    // duplicate case the GT union is *supposed* to merge.
+    cv::Rect a(0, 0, 10, 10);
+    EXPECT_EQ(CountInstancesByIou({a, a}, 0.5f), 1);
+}
+
+TEST(CountInstancesByIou, DisjointStaySeparate) {
+    EXPECT_EQ(CountInstancesByIou({cv::Rect(0, 0, 10, 10), cv::Rect(100, 100, 10, 10)}, 0.5f), 2);
+}
+
+TEST(CountInstancesByIou, LowIouStaysSeparate) {
+    // Half-overlap: IoU = 1/3 < 0.5 → two distinct instances. This is exactly
+    // the over-merge the raster-union would wrongly fuse into one polygon.
+    cv::Rect a(0, 0, 10, 10);
+    cv::Rect b(5, 0, 10, 10);
+    EXPECT_EQ(CountInstancesByIou({a, b}, 0.5f), 2);
+}
+
+TEST(CountInstancesByIou, HighIouMerges) {
+    // Shift 1 of a 10px box → IoU ~0.82 > 0.5 → one instance.
+    cv::Rect a(0, 0, 10, 10);
+    cv::Rect b(1, 0, 10, 10);
+    EXPECT_EQ(CountInstancesByIou({a, b}, 0.5f), 1);
+}
+
+TEST(CountInstancesByIou, DuplicatePairPlusDistinct) {
+    cv::Rect dup(0, 0, 10, 10);
+    cv::Rect other(50, 0, 10, 10);
+    EXPECT_EQ(CountInstancesByIou({dup, dup, other}, 0.5f), 2);
+}
+
+TEST(CountInstancesByIou, TransitiveMerge) {
+    // a~b and b~c each clear 0.5, but a~c (IoU 0.25) does not; union-find still
+    // collapses all three into one component.
+    cv::Rect a(0, 0, 10, 10);
+    cv::Rect b(3, 0, 10, 10);  // IoU(a,b) = 7/13 ~0.54
+    cv::Rect c(6, 0, 10, 10);  // IoU(b,c) ~0.54 ; IoU(a,c) = 0.25
+    EXPECT_EQ(CountInstancesByIou({a, b, c}, 0.5f), 1);
 }

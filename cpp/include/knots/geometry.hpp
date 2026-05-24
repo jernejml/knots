@@ -41,6 +41,14 @@ struct Match {
 std::vector<Match> GreedyMatch(const std::vector<Polygon>& preds,
                                 const std::vector<Polygon>& gts, float threshold);
 
+// Estimate of distinct instances among `boxes`: union-find clustering that
+// merges two boxes when BboxIou >= `iou_thresh`, returning the component count.
+// GT stitching uses it to estimate how many physically distinct knots the
+// projected annotations represent — cross-frame duplicates of one knot have
+// high IoU and collapse, while distinct-but-adjacent knots stay separate — in
+// contrast to the looser raster-union that fuses anything that touches.
+int CountInstancesByIou(const std::vector<cv::Rect>& boxes, float iou_thresh);
+
 // Optional-returning division. nullopt iff den <= 0.
 std::optional<float> SafeDiv(double num, double den);
 
