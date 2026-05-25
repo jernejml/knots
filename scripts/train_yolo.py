@@ -306,7 +306,7 @@ def main() -> None:
             f"latest pointer: {rel_to_root(LATEST_ONNX_LINK)} → " f"{os.readlink(LATEST_ONNX_LINK)}"
         )
 
-    save_run_meta(
+    meta_path = save_run_meta(
         save_dir,
         STAGE,
         args,
@@ -317,7 +317,7 @@ def main() -> None:
             "published_onnx": rel_to_root(LATEST_ONNX_LINK),
         },
     )
-    print(f"run meta written: {rel_to_root(save_dir / 'run_meta.json')}")
+    print(f"run meta written: {rel_to_root(meta_path)}")
 
 
 if __name__ == "__main__":

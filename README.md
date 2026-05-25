@@ -96,7 +96,8 @@ docker run --rm \
     --pred-dir /work/out/boards/pred \
     --gt-dir   /work/out/boards/gt \
     --labels-dir /work/data/labels \
-    --images-dir /work/data/images
+    --images-dir /work/data/images \
+    --out /work/out/boards/eval_boards.json
 ```
 
 Equivalently, with the data at `./data/`: `./run.sh infer eval`.

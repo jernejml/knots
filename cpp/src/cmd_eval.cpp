@@ -182,7 +182,7 @@ std::map<int, BoardData> CollectData(const EvalArgs& args) {
 int CmdEval(const EvalArgs& args_in) {
     EvalArgs args = args_in;
     if (args.out_json.empty()) {
-        args.out_json = fs::path("out") / "analysis" / "eval_boards.json";
+        args.out_json = fs::path("out") / "boards" / "eval_boards.json";
     }
 
     // --labels-dir + --images-dir are paired; either both set or neither.

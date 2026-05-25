@@ -74,7 +74,7 @@ void AddEvalOptions(CLI::App* app, EvalArgs& args) {
         ->required();
     AddBoardsFilterOpts(app, args.boards);
     app->add_option("--out", args.out_json,
-                    "JSON output path (default out/analysis/eval_boards.json)");
+                    "JSON output path (default out/boards/eval_boards.json)");
     app->add_option("--match-iou", args.match_iou, "bbox IoU threshold for matching")
         ->capture_default_str();
     app->add_flag("--no-write", args.no_write, "skip JSON output; print to stdout only");
